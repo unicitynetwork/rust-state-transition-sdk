@@ -194,18 +194,20 @@ mod tests {
 
     #[test]
     fn test_unmasked_predicate() {
-        let key_bytes = [3u8; 33]; // Compressed public key format
-        let public_key = PublicKey::new(key_bytes).unwrap();
+        use crate::crypto::keys::KeyPair;
+        let key_pair = KeyPair::generate().unwrap();
+        let public_key = key_pair.public_key().clone();
         let predicate = UnmaskedPredicate::new(public_key.clone());
 
         assert_eq!(predicate.predicate_type(), PredicateType::Unmasked);
-        assert_eq!(Predicate::serialize(&predicate).unwrap(), key_bytes.to_vec());
+        assert_eq!(Predicate::serialize(&predicate).unwrap(), public_key.as_bytes().to_vec());
     }
 
     #[test]
     fn test_masked_predicate() {
-        let key_bytes = [3u8; 33];
-        let public_key = PublicKey::new(key_bytes).unwrap();
+        use crate::crypto::keys::KeyPair;
+        let key_pair = KeyPair::generate().unwrap();
+        let public_key = key_pair.public_key().clone();
         let nonce = b"test_nonce";
         let predicate = MaskedPredicate::from_public_key_and_nonce(&public_key, nonce);
 
@@ -215,8 +217,9 @@ mod tests {
 
     #[test]
     fn test_predicate_reference_roundtrip() {
-        let key_bytes = [3u8; 33];
-        let public_key = PublicKey::new(key_bytes).unwrap();
+        use crate::crypto::keys::KeyPair;
+        let key_pair = KeyPair::generate().unwrap();
+        let public_key = key_pair.public_key().clone();
         let predicate = UnmaskedPredicate::new(public_key);
 
         let reference = PredicateReference::from_predicate(&predicate).unwrap();

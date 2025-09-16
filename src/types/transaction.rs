@@ -296,8 +296,7 @@ impl SplitMintReason {
 mod tests {
     use super::*;
     use crate::types::predicate::UnmaskedPredicate;
-    use crate::types::primitives::PublicKey;
-
+    
     #[test]
     fn test_inclusion_proof() {
         let root = DataHash::sha256(vec![1, 2, 3]);
@@ -313,8 +312,9 @@ mod tests {
 
     #[test]
     fn test_mint_transaction_data() {
-        let key_bytes = [3u8; 33];
-        let public_key = PublicKey::new(key_bytes).unwrap();
+        use crate::crypto::keys::KeyPair;
+        let key_pair = KeyPair::generate().unwrap();
+        let public_key = key_pair.public_key().clone();
         let predicate = UnmaskedPredicate::new(public_key);
         let state = TokenState::from_predicate(&predicate, None).unwrap();
 
@@ -330,8 +330,9 @@ mod tests {
 
     #[test]
     fn test_transfer_transaction_data() {
-        let key_bytes = [3u8; 33];
-        let public_key = PublicKey::new(key_bytes).unwrap();
+        use crate::crypto::keys::KeyPair;
+        let key_pair = KeyPair::generate().unwrap();
+        let public_key = key_pair.public_key().clone();
         let predicate = UnmaskedPredicate::new(public_key);
         let source_state = TokenState::from_predicate(&predicate, None).unwrap();
         let target_state = TokenState::from_predicate(&predicate, Some(vec![1, 2, 3])).unwrap();

@@ -234,8 +234,7 @@ where
 mod tests {
     use super::*;
     use crate::types::predicate::UnmaskedPredicate;
-    use crate::types::primitives::PublicKey;
-
+    
     #[test]
     fn test_token_id() {
         let bytes = [1u8; 32];
@@ -246,8 +245,9 @@ mod tests {
 
     #[test]
     fn test_token_state() {
-        let key_bytes = [3u8; 33];
-        let public_key = PublicKey::new(key_bytes).unwrap();
+        use crate::crypto::keys::KeyPair;
+        let key_pair = KeyPair::generate().unwrap();
+        let public_key = key_pair.public_key().clone();
         let predicate = UnmaskedPredicate::new(public_key);
         let state = TokenState::from_predicate(&predicate, Some(vec![1, 2, 3])).unwrap();
 
