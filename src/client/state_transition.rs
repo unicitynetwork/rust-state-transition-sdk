@@ -121,7 +121,8 @@ impl StateTransitionClient {
             )));
         }
 
-        Ok(response.request_id)
+        // Return the request ID from the commitment since response doesn't include it
+        Ok(hex::encode(commitment.request_id.as_data_hash().imprint()))
     }
 
     /// Submit a transfer commitment
@@ -138,7 +139,8 @@ impl StateTransitionClient {
             )));
         }
 
-        Ok(response.request_id)
+        // Return the request ID from the commitment since response doesn't include it
+        Ok(hex::encode(commitment.request_id.as_data_hash().imprint()))
     }
 
     /// Finalize a transaction with inclusion proof

@@ -7,26 +7,35 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::time::Duration;
 
-/// Submit commitment request
+/// Submit commitment request - matches Java SDK exactly
 #[derive(Debug, Serialize)]
 pub struct SubmitCommitmentRequest {
+    #[serde(rename = "requestId")]
     pub request_id: String,
-    pub state_hash: String,
+    #[serde(rename = "transactionHash")]
+    pub transaction_hash: String,
     pub authenticator: AuthenticatorDto,
+    pub receipt: bool,
 }
 
-/// Authenticator DTO for JSON serialization
+/// Authenticator DTO for JSON serialization - matches Java SDK exactly
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AuthenticatorDto {
+    pub algorithm: String,
+    #[serde(rename = "publicKey")]
     pub public_key: String,
     pub signature: String,
+    #[serde(rename = "stateHash")]
+    pub state_hash: String,
 }
 
 impl From<&Authenticator> for AuthenticatorDto {
     fn from(auth: &Authenticator) -> Self {
         Self {
+            algorithm: auth.algorithm.clone(),
             public_key: hex::encode(auth.public_key.as_bytes()),
             signature: hex::encode(auth.signature.as_bytes()),
+            state_hash: hex::encode(auth.state_hash.imprint()),
         }
     }
 }
@@ -34,7 +43,6 @@ impl From<&Authenticator> for AuthenticatorDto {
 /// Submit commitment response
 #[derive(Debug, Deserialize)]
 pub struct SubmitCommitmentResponse {
-    pub request_id: String,
     pub status: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
@@ -43,15 +51,17 @@ pub struct SubmitCommitmentResponse {
 /// Get inclusion proof response
 #[derive(Debug, Deserialize)]
 pub struct GetInclusionProofResponse {
+    #[serde(rename = "requestId")]
     pub request_id: String,
     pub status: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "inclusionProof", skip_serializing_if = "Option::is_none")]
     pub inclusion_proof: Option<InclusionProofDto>,
 }
 
 /// Inclusion proof DTO
 #[derive(Debug, Deserialize)]
 pub struct InclusionProofDto {
+    #[serde(rename = "blockHeight")]
     pub block_height: u64,
     pub path: Vec<PathElementDto>,
     pub root: String,
@@ -97,7 +107,8 @@ impl InclusionProofDto {
 /// Block height response
 #[derive(Debug, Deserialize)]
 pub struct BlockHeightResponse {
-    pub block_height: u64,
+    #[serde(rename = "blockNumber")]
+    pub block_number: String,  // Note: returned as string, not u64
 }
 
 /// Aggregator client for low-level API access
@@ -118,17 +129,23 @@ impl AggregatorClient {
         &self,
         commitment: &dyn Commitment,
     ) -> Result<SubmitCommitmentResponse> {
+        // Build request matching Java SDK structure exactly
         let request_id = hex::encode(commitment.request_id().as_data_hash().imprint());
-        let state_hash = hex::encode(commitment.state_hash().imprint());
+        let transaction_hash = hex::encode(commitment.transaction_hash().imprint());
         let authenticator = AuthenticatorDto::from(commitment.authenticator());
 
         let params = json!({
-            "request_id": request_id,
-            "state_hash": state_hash,
+            "requestId": request_id,
+            "transactionHash": transaction_hash,
             "authenticator": authenticator,
+            "receipt": false,
         });
 
         let response = self.transport.send_request("submit_commitment", params).await?;
+
+        // Debug: Print raw response
+        tracing::debug!("Raw response from aggregator: {:?}", response);
+
         serde_json::from_value(response).map_err(|e| SdkError::Json(e))
     }
 
@@ -136,20 +153,25 @@ impl AggregatorClient {
     pub async fn submit_commitment_raw(
         &self,
         request_id: &RequestId,
-        state_hash: &DataHash,
+        transaction_hash: &DataHash,
         authenticator: &Authenticator,
     ) -> Result<SubmitCommitmentResponse> {
         let request_id = hex::encode(request_id.as_data_hash().imprint());
-        let state_hash = hex::encode(state_hash.imprint());
+        let transaction_hash = hex::encode(transaction_hash.imprint());
         let authenticator = AuthenticatorDto::from(authenticator);
 
         let params = json!({
-            "request_id": request_id,
-            "state_hash": state_hash,
+            "requestId": request_id,
+            "transactionHash": transaction_hash,
             "authenticator": authenticator,
+            "receipt": false,
         });
 
         let response = self.transport.send_request("submit_commitment", params).await?;
+
+        // Debug: Print raw response
+        tracing::debug!("Raw response from aggregator: {:?}", response);
+
         serde_json::from_value(response).map_err(|e| SdkError::Json(e))
     }
 
@@ -161,7 +183,7 @@ impl AggregatorClient {
         let request_id_hex = hex::encode(request_id.as_data_hash().imprint());
 
         let params = json!({
-            "request_id": request_id_hex,
+            "requestId": request_id_hex,
         });
 
         let response = self.transport.send_request("get_inclusion_proof", params).await?;
@@ -211,7 +233,11 @@ impl AggregatorClient {
             .await?;
         let height_response: BlockHeightResponse =
             serde_json::from_value(response).map_err(|e| SdkError::Json(e))?;
-        Ok(height_response.block_height)
+
+        // Parse the string block number to u64
+        height_response.block_number
+            .parse::<u64>()
+            .map_err(|e| SdkError::InvalidParameter(format!("Invalid block number: {}", e)))
     }
 
     /// Health check
@@ -255,20 +281,22 @@ impl InclusionProofUtils {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::crypto::KeyPair;
+    use crate::types::primitives::Signature;
 
     #[test]
     fn test_authenticator_dto_conversion() {
-        use crate::crypto::KeyPair;
-        use crate::types::primitives::Signature;
-
         let key_pair = KeyPair::generate().unwrap();
         let public_key = key_pair.public_key().clone();
         let signature = Signature::new([0u8; 65]);
-        let authenticator = Authenticator::new(public_key, signature);
+        let state_hash = crate::crypto::sha256(b"test");
+        let authenticator = Authenticator::new(public_key, signature, state_hash);
 
         let dto = AuthenticatorDto::from(&authenticator);
+        assert_eq!(dto.algorithm, "secp256k1");
         assert_eq!(dto.public_key.len(), 66); // 33 bytes hex encoded
         assert_eq!(dto.signature.len(), 130); // 65 bytes hex encoded
+        assert_eq!(dto.state_hash.len(), 68); // 34 bytes (2 algo + 32 hash) hex encoded
     }
 
     #[test]

@@ -14,8 +14,8 @@ pub trait Commitment: Send + Sync {
     /// Get the request ID
     fn request_id(&self) -> &RequestId;
 
-    /// Get the state hash
-    fn state_hash(&self) -> &DataHash;
+    /// Get the transaction hash (hash of transaction data)
+    fn transaction_hash(&self) -> &DataHash;
 
     /// Get the authenticator
     fn authenticator(&self) -> &Authenticator;
@@ -33,18 +33,23 @@ pub enum CommitmentType {
 }
 
 /// Authenticator for commitment validation
+/// This matches the Java SDK structure exactly
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Authenticator {
+    pub algorithm: String,      // "secp256k1"
     pub public_key: PublicKey,
     pub signature: Signature,
+    pub state_hash: DataHash,   // The state hash that was signed
 }
 
 impl Authenticator {
     /// Create a new authenticator
-    pub fn new(public_key: PublicKey, signature: Signature) -> Self {
+    pub fn new(public_key: PublicKey, signature: Signature, state_hash: DataHash) -> Self {
         Self {
+            algorithm: "secp256k1".to_string(),
             public_key,
             signature,
+            state_hash,
         }
     }
 
@@ -74,7 +79,7 @@ impl Authenticator {
 pub struct MintCommitment {
     pub mint_data: MintTransactionData,
     pub request_id: RequestId,
-    pub state_hash: DataHash,
+    pub transaction_hash: DataHash,  // Changed from state_hash
     pub authenticator: Authenticator,
 }
 
@@ -84,15 +89,16 @@ impl MintCommitment {
         mint_data: MintTransactionData,
         public_key: PublicKey,
         signature: Signature,
+        state_hash: DataHash,
     ) -> Result<Self> {
-        let state_hash = mint_data.hash()?;
+        let transaction_hash = mint_data.hash()?;
         let request_id = RequestId::new(&public_key, &state_hash);
-        let authenticator = Authenticator::new(public_key, signature);
+        let authenticator = Authenticator::new(public_key, signature, state_hash);
 
         Ok(Self {
             mint_data,
             request_id,
-            state_hash,
+            transaction_hash,
             authenticator,
         })
     }
@@ -109,10 +115,16 @@ impl MintCommitment {
         let public_key_bytes = public_key_secp.serialize();
         let public_key = PublicKey::new(public_key_bytes)?;
 
-        let state_hash = mint_data.hash()?;
+        // Calculate state hash (for MintCommitment, it's the hash of target state)
+        let state_hash = mint_data.target_state.hash()?;
+
+        // Calculate transaction hash
+        let transaction_hash = mint_data.hash()?;
+
+        // Calculate request ID
         let request_id = RequestId::new(&public_key, &state_hash);
 
-        // Sign the state hash
+        // Sign the state hash (not the transaction hash!)
         let message = Message::from_digest(state_hash.data().try_into().map_err(|_| SdkError::Crypto("State hash must be 32 bytes".to_string()))?);
         let recoverable_sig = secp.sign_ecdsa_recoverable(message, signing_key);
         let (recovery_id, sig_bytes) = recoverable_sig.serialize_compact();
@@ -122,12 +134,12 @@ impl MintCommitment {
         signature_bytes[64] = recovery_id as u8;
         let signature = Signature::new(signature_bytes);
 
-        let authenticator = Authenticator::new(public_key, signature);
+        let authenticator = Authenticator::new(public_key, signature, state_hash.clone());
 
         Ok(Self {
             mint_data,
             request_id,
-            state_hash,
+            transaction_hash,
             authenticator,
         })
     }
@@ -147,8 +159,8 @@ impl Commitment for MintCommitment {
         &self.request_id
     }
 
-    fn state_hash(&self) -> &DataHash {
-        &self.state_hash
+    fn transaction_hash(&self) -> &DataHash {
+        &self.transaction_hash
     }
 
     fn authenticator(&self) -> &Authenticator {
@@ -167,7 +179,7 @@ pub struct TransferCommitment {
     pub transfer_data: TransferTransactionData,
     pub source_token_id: TokenId,
     pub request_id: RequestId,
-    pub state_hash: DataHash,
+    pub transaction_hash: DataHash,  // Changed from state_hash
     pub authenticator: Authenticator,
 }
 
@@ -178,16 +190,17 @@ impl TransferCommitment {
         source_token_id: TokenId,
         public_key: PublicKey,
         signature: Signature,
+        state_hash: DataHash,
     ) -> Result<Self> {
-        let state_hash = transfer_data.hash()?;
+        let transaction_hash = transfer_data.hash()?;
         let request_id = RequestId::new(&public_key, &state_hash);
-        let authenticator = Authenticator::new(public_key, signature);
+        let authenticator = Authenticator::new(public_key, signature, state_hash);
 
         Ok(Self {
             transfer_data,
             source_token_id,
             request_id,
-            state_hash,
+            transaction_hash,
             authenticator,
         })
     }
@@ -211,15 +224,20 @@ impl TransferCommitment {
 
         let transfer_data = TransferTransactionData::new(
             token.state.clone(),
-            target_state,
+            target_state.clone(),
             salt,
         );
 
-        let state_hash = transfer_data.hash()?;
+        // For transfer, state hash is the hash of the target state
+        let state_hash = target_state.hash()?;
+
+        // Calculate transaction hash
+        let transaction_hash = transfer_data.hash()?;
+
         let request_id = RequestId::new(&public_key, &state_hash);
         let source_token_id = token.id()?;
 
-        // Sign the state hash
+        // Sign the state hash (not the transaction hash!)
         let message = Message::from_digest(state_hash.data().try_into().map_err(|_| SdkError::Crypto("State hash must be 32 bytes".to_string()))?);
         let recoverable_sig = secp.sign_ecdsa_recoverable(message, signing_key);
         let (recovery_id, sig_bytes) = recoverable_sig.serialize_compact();
@@ -229,13 +247,13 @@ impl TransferCommitment {
         signature_bytes[64] = recovery_id as u8;
         let signature = Signature::new(signature_bytes);
 
-        let authenticator = Authenticator::new(public_key, signature);
+        let authenticator = Authenticator::new(public_key, signature, state_hash.clone());
 
         Ok(Self {
             transfer_data,
             source_token_id,
             request_id,
-            state_hash,
+            transaction_hash,
             authenticator,
         })
     }
@@ -255,8 +273,8 @@ impl Commitment for TransferCommitment {
         &self.request_id
     }
 
-    fn state_hash(&self) -> &DataHash {
-        &self.state_hash
+    fn transaction_hash(&self) -> &DataHash {
+        &self.transaction_hash
     }
 
     fn authenticator(&self) -> &Authenticator {
@@ -274,6 +292,7 @@ mod tests {
     use super::*;
     use crate::types::predicate::UnmaskedPredicate;
     use crate::types::token::{TokenState, TokenType};
+    use crate::crypto::keys::KeyPair;
 
     #[test]
     fn test_mint_commitment_creation() {
@@ -283,8 +302,8 @@ mod tests {
         let secp = Secp256k1::new();
         let (secret_key, _) = secp.generate_keypair(&mut rand::rng());
 
-        let public_key_secp = secp256k1::PublicKey::from_secret_key(&secp, &secret_key);
-        let public_key = PublicKey::new(public_key_secp.serialize()).unwrap();
+        let key_pair = KeyPair::generate().unwrap();
+        let public_key = key_pair.public_key().clone();
         let predicate = UnmaskedPredicate::new(public_key);
         let target_state = TokenState::from_predicate(&predicate, None).unwrap();
 
@@ -297,7 +316,8 @@ mod tests {
 
         let commitment = MintCommitment::create(mint_data, &secret_key).unwrap();
         assert_eq!(commitment.commitment_type(), CommitmentType::Mint);
-        assert!(commitment.authenticator.verify(commitment.state_hash.data()).unwrap());
+        assert_eq!(commitment.authenticator.algorithm, "secp256k1");
+        assert!(commitment.authenticator.verify(commitment.authenticator.state_hash.data()).unwrap());
     }
 
     #[test]
@@ -313,6 +333,7 @@ mod tests {
 
         let data = b"test data";
         let hash = sha2::Sha256::digest(data);
+        let state_hash = DataHash::sha256(hash.to_vec());
         let message = Message::from_digest(hash.into());
         let recoverable_sig = secp.sign_ecdsa_recoverable(message, &secret_key);
         let (recovery_id, sig_bytes) = recoverable_sig.serialize_compact();
@@ -322,7 +343,8 @@ mod tests {
         signature_bytes[64] = recovery_id as u8;
         let signature = Signature::new(signature_bytes);
 
-        let authenticator = Authenticator::new(public_key, signature);
+        let authenticator = Authenticator::new(public_key, signature, state_hash.clone());
+        assert_eq!(authenticator.algorithm, "secp256k1");
         assert!(authenticator.verify(&hash).unwrap());
     }
 }
