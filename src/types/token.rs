@@ -197,7 +197,10 @@ where
     }
 
     /// Add a nametag token
-    pub fn add_nametag(&mut self, nametag: Token<crate::types::transaction::NametagMintTransactionData>) {
+    pub fn add_nametag(
+        &mut self,
+        nametag: Token<crate::types::transaction::NametagMintTransactionData>,
+    ) {
         self.nametags.push(nametag);
     }
 
@@ -207,7 +210,9 @@ where
     }
 
     /// Get the last transaction
-    pub fn last_transaction(&self) -> Option<&Transaction<crate::types::transaction::TransferTransactionData>> {
+    pub fn last_transaction(
+        &self,
+    ) -> Option<&Transaction<crate::types::transaction::TransferTransactionData>> {
         self.transactions.last()
     }
 
@@ -234,7 +239,7 @@ where
 mod tests {
     use super::*;
     use crate::types::predicate::UnmaskedPredicate;
-    
+
     #[test]
     fn test_token_id() {
         let bytes = [1u8; 32];

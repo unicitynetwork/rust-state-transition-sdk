@@ -163,7 +163,7 @@ impl ResolvedAddress {
 mod tests {
     use super::*;
     use crate::types::predicate::UnmaskedPredicate;
-    
+
     #[test]
     fn test_direct_address_from_predicate() {
         use crate::crypto::keys::KeyPair;

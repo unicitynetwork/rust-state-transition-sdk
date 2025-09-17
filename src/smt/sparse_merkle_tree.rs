@@ -96,8 +96,11 @@ impl SparseMerkleTree {
         }
 
         // Sort leaves by index
-        let mut sorted_leaves: Vec<(BigInt, DataHash)> =
-            self.leaves.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+        let mut sorted_leaves: Vec<(BigInt, DataHash)> = self
+            .leaves
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
         sorted_leaves.sort_by(|a, b| a.0.cmp(&b.0));
 
         // Build tree recursively
@@ -167,7 +170,9 @@ impl SparseMerkleTree {
 
     /// Generate inclusion proof for a leaf
     pub fn get_proof(&self, index: &BigInt) -> Result<Vec<ProofNode>> {
-        let _hash = self.leaves.get(index)
+        let _hash = self
+            .leaves
+            .get(index)
             .ok_or_else(|| SdkError::InvalidParameter("Leaf not found".to_string()))?;
 
         if self.root.is_none() {
@@ -250,12 +255,8 @@ impl SparseMerkleTree {
 
         for node in proof.iter().rev() {
             current = match node {
-                ProofNode::Left(hash) => {
-                    sha256_all(&[&hash.imprint(), &current.imprint()])
-                }
-                ProofNode::Right(hash) => {
-                    sha256_all(&[&current.imprint(), &hash.imprint()])
-                }
+                ProofNode::Left(hash) => sha256_all(&[&hash.imprint(), &current.imprint()]),
+                ProofNode::Right(hash) => sha256_all(&[&current.imprint(), &hash.imprint()]),
             };
         }
 
@@ -333,7 +334,8 @@ mod tests {
         let index = BigInt::from(5);
 
         // Start with a simpler case - just two leaves
-        tree.add_leaf(BigInt::from(1), DataHash::sha256(vec![1])).unwrap();
+        tree.add_leaf(BigInt::from(1), DataHash::sha256(vec![1]))
+            .unwrap();
         tree.add_leaf(index.clone(), leaf_hash.clone()).unwrap();
 
         tree.build().unwrap();

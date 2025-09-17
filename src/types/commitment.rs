@@ -36,10 +36,10 @@ pub enum CommitmentType {
 /// This matches the Java SDK structure exactly
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Authenticator {
-    pub algorithm: String,      // "secp256k1"
+    pub algorithm: String, // "secp256k1"
     pub public_key: PublicKey,
     pub signature: Signature,
-    pub state_hash: DataHash,   // The state hash that was signed
+    pub state_hash: DataHash, // The state hash that was signed
 }
 
 impl Authenticator {
@@ -58,9 +58,13 @@ impl Authenticator {
         use secp256k1::{Message, Secp256k1};
 
         let secp = Secp256k1::new();
-        let message = Message::from_digest(data.try_into().map_err(|_| SdkError::Crypto("Data must be 32 bytes".to_string()))?);
+        let message = Message::from_digest(
+            data.try_into()
+                .map_err(|_| SdkError::Crypto("Data must be 32 bytes".to_string()))?,
+        );
 
-        let recovery_id = secp256k1::ecdsa::RecoveryId::from_u8_masked(self.signature.recovery_id());
+        let recovery_id =
+            secp256k1::ecdsa::RecoveryId::from_u8_masked(self.signature.recovery_id());
 
         let recoverable_sig = secp256k1::ecdsa::RecoverableSignature::from_compact(
             &self.signature.as_bytes()[..64],
@@ -79,7 +83,7 @@ impl Authenticator {
 pub struct MintCommitment {
     pub mint_data: MintTransactionData,
     pub request_id: RequestId,
-    pub transaction_hash: DataHash,  // Changed from state_hash
+    pub transaction_hash: DataHash, // Changed from state_hash
     pub authenticator: Authenticator,
 }
 
@@ -125,7 +129,12 @@ impl MintCommitment {
         let request_id = RequestId::new(&public_key, &state_hash);
 
         // Sign the state hash (not the transaction hash!)
-        let message = Message::from_digest(state_hash.data().try_into().map_err(|_| SdkError::Crypto("State hash must be 32 bytes".to_string()))?);
+        let message = Message::from_digest(
+            state_hash
+                .data()
+                .try_into()
+                .map_err(|_| SdkError::Crypto("State hash must be 32 bytes".to_string()))?,
+        );
         let recoverable_sig = secp.sign_ecdsa_recoverable(message, signing_key);
         let (recovery_id, sig_bytes) = recoverable_sig.serialize_compact();
 
@@ -168,8 +177,7 @@ impl Commitment for MintCommitment {
     }
 
     fn serialize_for_transaction(&self) -> Result<serde_json::Value> {
-        serde_json::to_value(&self.mint_data)
-            .map_err(|e| SdkError::Serialization(e.to_string()))
+        serde_json::to_value(&self.mint_data).map_err(|e| SdkError::Serialization(e.to_string()))
     }
 }
 
@@ -179,7 +187,7 @@ pub struct TransferCommitment {
     pub transfer_data: TransferTransactionData,
     pub source_token_id: TokenId,
     pub request_id: RequestId,
-    pub transaction_hash: DataHash,  // Changed from state_hash
+    pub transaction_hash: DataHash, // Changed from state_hash
     pub authenticator: Authenticator,
 }
 
@@ -222,11 +230,8 @@ impl TransferCommitment {
         let public_key_bytes = public_key_secp.serialize();
         let public_key = PublicKey::new(public_key_bytes)?;
 
-        let transfer_data = TransferTransactionData::new(
-            token.state.clone(),
-            target_state.clone(),
-            salt,
-        );
+        let transfer_data =
+            TransferTransactionData::new(token.state.clone(), target_state.clone(), salt);
 
         // For transfer, state hash is the hash of the target state
         let state_hash = target_state.hash()?;
@@ -238,7 +243,12 @@ impl TransferCommitment {
         let source_token_id = token.id()?;
 
         // Sign the state hash (not the transaction hash!)
-        let message = Message::from_digest(state_hash.data().try_into().map_err(|_| SdkError::Crypto("State hash must be 32 bytes".to_string()))?);
+        let message = Message::from_digest(
+            state_hash
+                .data()
+                .try_into()
+                .map_err(|_| SdkError::Crypto("State hash must be 32 bytes".to_string()))?,
+        );
         let recoverable_sig = secp.sign_ecdsa_recoverable(message, signing_key);
         let (recovery_id, sig_bytes) = recoverable_sig.serialize_compact();
 
@@ -290,14 +300,14 @@ impl Commitment for TransferCommitment {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::crypto::keys::KeyPair;
     use crate::types::predicate::UnmaskedPredicate;
     use crate::types::token::{TokenState, TokenType};
-    use crate::crypto::keys::KeyPair;
 
     #[test]
     fn test_mint_commitment_creation() {
-        use secp256k1::Secp256k1;
         use secp256k1::rand;
+        use secp256k1::Secp256k1;
 
         let secp = Secp256k1::new();
         let (secret_key, _) = secp.generate_keypair(&mut rand::rng());
@@ -317,13 +327,16 @@ mod tests {
         let commitment = MintCommitment::create(mint_data, &secret_key).unwrap();
         assert_eq!(commitment.commitment_type(), CommitmentType::Mint);
         assert_eq!(commitment.authenticator.algorithm, "secp256k1");
-        assert!(commitment.authenticator.verify(commitment.authenticator.state_hash.data()).unwrap());
+        assert!(commitment
+            .authenticator
+            .verify(commitment.authenticator.state_hash.data())
+            .unwrap());
     }
 
     #[test]
     fn test_authenticator_verification() {
-        use secp256k1::{Message, Secp256k1};
         use secp256k1::rand;
+        use secp256k1::{Message, Secp256k1};
         use sha2::Digest;
 
         let secp = Secp256k1::new();

@@ -59,9 +59,7 @@ impl DataHash {
     /// Create from imprint bytes
     pub fn from_imprint(imprint: &[u8]) -> Result<Self> {
         if imprint.len() < 2 {
-            return Err(SdkError::InvalidParameter(
-                "Imprint too short".to_string(),
-            ));
+            return Err(SdkError::InvalidParameter("Imprint too short".to_string()));
         }
         let algorithm = [imprint[0], imprint[1]];
         let data = imprint[2..].to_vec();

@@ -105,7 +105,10 @@ async fn test_token_transfer_flow() {
 
                     match transfer_result {
                         Ok(transfer_commitment) => {
-                            match client.submit_transfer_commitment(&transfer_commitment).await {
+                            match client
+                                .submit_transfer_commitment(&transfer_commitment)
+                                .await
+                            {
                                 Ok(transfer_id) => {
                                     println!("Transfer submitted with ID: {}", transfer_id);
                                 }

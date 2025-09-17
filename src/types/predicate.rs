@@ -200,7 +200,10 @@ mod tests {
         let predicate = UnmaskedPredicate::new(public_key.clone());
 
         assert_eq!(predicate.predicate_type(), PredicateType::Unmasked);
-        assert_eq!(Predicate::serialize(&predicate).unwrap(), public_key.as_bytes().to_vec());
+        assert_eq!(
+            Predicate::serialize(&predicate).unwrap(),
+            public_key.as_bytes().to_vec()
+        );
     }
 
     #[test]
@@ -226,6 +229,9 @@ mod tests {
         let recovered = reference.to_predicate().unwrap();
 
         assert_eq!(recovered.predicate_type(), PredicateType::Unmasked);
-        assert_eq!(recovered.serialize().unwrap(), Predicate::serialize(&predicate).unwrap());
+        assert_eq!(
+            recovered.serialize().unwrap(),
+            Predicate::serialize(&predicate).unwrap()
+        );
     }
 }

@@ -37,17 +37,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     btc_tree.add_leaf(
         BigInt::from(1),
         sha256(b"alice_btc_1"),
-        BigInt::from(400),  // 400 BTC
+        BigInt::from(400), // 400 BTC
     )?;
     btc_tree.add_leaf(
         BigInt::from(2),
         sha256(b"alice_btc_2"),
-        BigInt::from(350),  // 350 BTC
+        BigInt::from(350), // 350 BTC
     )?;
     btc_tree.add_leaf(
         BigInt::from(3),
         sha256(b"alice_btc_3"),
-        BigInt::from(250),  // 250 BTC
+        BigInt::from(250), // 250 BTC
     )?;
 
     btc_tree.build()?;
@@ -66,12 +66,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     eth_tree.add_leaf(
         BigInt::from(1),
         sha256(b"alice_eth_1"),
-        BigInt::from(300),  // 300 ETH
+        BigInt::from(300), // 300 ETH
     )?;
     eth_tree.add_leaf(
         BigInt::from(2),
         sha256(b"alice_eth_2"),
-        BigInt::from(200),  // 200 ETH
+        BigInt::from(200), // 200 ETH
     )?;
 
     eth_tree.build()?;
@@ -87,20 +87,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut aggregation_tree = SparseMerkleSumTree::new();
 
     // Add coin type mappings
-    aggregation_tree.add_leaf(
-        BigInt::from(1),
-        sha256(b"BTC"),
-        BigInt::from(1000),
-    )?;
-    aggregation_tree.add_leaf(
-        BigInt::from(2),
-        sha256(b"ETH"),
-        BigInt::from(500),
-    )?;
+    aggregation_tree.add_leaf(BigInt::from(1), sha256(b"BTC"), BigInt::from(1000))?;
+    aggregation_tree.add_leaf(BigInt::from(2), sha256(b"ETH"), BigInt::from(500))?;
     aggregation_tree.add_leaf(
         BigInt::from(3),
         sha256(b"USDT"),
-        BigInt::from(2500),  // Not split, kept whole
+        BigInt::from(2500), // Not split, kept whole
     )?;
 
     aggregation_tree.build()?;

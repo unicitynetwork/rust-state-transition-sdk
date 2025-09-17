@@ -21,7 +21,10 @@ impl SigningService {
     pub fn sign(&self, data: &[u8], secret_key: &SecretKey) -> Result<Signature> {
         // Create message from data (must be 32 bytes)
         let message = if data.len() == 32 {
-            Message::from_digest(data.try_into().map_err(|_| SdkError::Crypto("Data must be 32 bytes".to_string()))?)
+            Message::from_digest(
+                data.try_into()
+                    .map_err(|_| SdkError::Crypto("Data must be 32 bytes".to_string()))?,
+            )
         } else {
             // Hash the data if not 32 bytes
             use sha2::{Digest, Sha256};
@@ -69,7 +72,10 @@ impl SigningService {
     ) -> Result<bool> {
         // Create message
         let message = if data.len() == 32 {
-            Message::from_digest(data.try_into().map_err(|_| SdkError::Crypto("Data must be 32 bytes".to_string()))?)
+            Message::from_digest(
+                data.try_into()
+                    .map_err(|_| SdkError::Crypto("Data must be 32 bytes".to_string()))?,
+            )
         } else {
             use sha2::{Digest, Sha256};
             let hash = Sha256::digest(data);
@@ -79,10 +85,8 @@ impl SigningService {
         // Extract signature components
         let recovery_id = secp256k1::ecdsa::RecoveryId::from_u8_masked(signature.recovery_id());
 
-        let recoverable_sig = RecoverableSignature::from_compact(
-            &signature.as_bytes()[..64],
-            recovery_id,
-        )?;
+        let recoverable_sig =
+            RecoverableSignature::from_compact(&signature.as_bytes()[..64], recovery_id)?;
 
         // Recover public key from signature
         let recovered_key = self.secp.recover_ecdsa(message, &recoverable_sig)?;
@@ -95,7 +99,10 @@ impl SigningService {
     pub fn recover_public_key(&self, data: &[u8], signature: &Signature) -> Result<PublicKey> {
         // Create message
         let message = if data.len() == 32 {
-            Message::from_digest(data.try_into().map_err(|_| SdkError::Crypto("Data must be 32 bytes".to_string()))?)
+            Message::from_digest(
+                data.try_into()
+                    .map_err(|_| SdkError::Crypto("Data must be 32 bytes".to_string()))?,
+            )
         } else {
             use sha2::{Digest, Sha256};
             let hash = Sha256::digest(data);
@@ -105,10 +112,8 @@ impl SigningService {
         // Extract signature components
         let recovery_id = secp256k1::ecdsa::RecoveryId::from_u8_masked(signature.recovery_id());
 
-        let recoverable_sig = RecoverableSignature::from_compact(
-            &signature.as_bytes()[..64],
-            recovery_id,
-        )?;
+        let recoverable_sig =
+            RecoverableSignature::from_compact(&signature.as_bytes()[..64], recovery_id)?;
 
         // Recover public key
         let recovered_key = self.secp.recover_ecdsa(message, &recoverable_sig)?;

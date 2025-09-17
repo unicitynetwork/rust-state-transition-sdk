@@ -108,7 +108,7 @@ impl InclusionProofDto {
 #[derive(Debug, Deserialize)]
 pub struct BlockHeightResponse {
     #[serde(rename = "blockNumber")]
-    pub block_number: String,  // Note: returned as string, not u64
+    pub block_number: String, // Note: returned as string, not u64
 }
 
 /// Aggregator client for low-level API access
@@ -141,7 +141,10 @@ impl AggregatorClient {
             "receipt": false,
         });
 
-        let response = self.transport.send_request("submit_commitment", params).await?;
+        let response = self
+            .transport
+            .send_request("submit_commitment", params)
+            .await?;
 
         // Debug: Print raw response
         tracing::debug!("Raw response from aggregator: {:?}", response);
@@ -167,7 +170,10 @@ impl AggregatorClient {
             "receipt": false,
         });
 
-        let response = self.transport.send_request("submit_commitment", params).await?;
+        let response = self
+            .transport
+            .send_request("submit_commitment", params)
+            .await?;
 
         // Debug: Print raw response
         tracing::debug!("Raw response from aggregator: {:?}", response);
@@ -186,7 +192,10 @@ impl AggregatorClient {
             "requestId": request_id_hex,
         });
 
-        let response = self.transport.send_request("get_inclusion_proof", params).await?;
+        let response = self
+            .transport
+            .send_request("get_inclusion_proof", params)
+            .await?;
         let proof_response: GetInclusionProofResponse =
             serde_json::from_value(response).map_err(|e| SdkError::Json(e))?;
 
@@ -235,7 +244,8 @@ impl AggregatorClient {
             serde_json::from_value(response).map_err(|e| SdkError::Json(e))?;
 
         // Parse the string block number to u64
-        height_response.block_number
+        height_response
+            .block_number
             .parse::<u64>()
             .map_err(|e| SdkError::InvalidParameter(format!("Invalid block number: {}", e)))
     }

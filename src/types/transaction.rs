@@ -25,8 +25,8 @@ where
     /// Compute the hash of the transaction
     pub fn hash(&self) -> Result<DataHash> {
         use sha2::{Digest, Sha256};
-        let serialized = serde_json::to_vec(&self.data)
-            .map_err(|e| SdkError::Serialization(e.to_string()))?;
+        let serialized =
+            serde_json::to_vec(&self.data).map_err(|e| SdkError::Serialization(e.to_string()))?;
         let mut hasher = Sha256::new();
         hasher.update(&serialized);
         Ok(DataHash::sha256(hasher.finalize().to_vec()))
@@ -191,11 +191,7 @@ pub struct TransferTransactionData {
 
 impl TransferTransactionData {
     /// Create new transfer transaction data
-    pub fn new(
-        source_state: TokenState,
-        target_state: TokenState,
-        salt: Option<Vec<u8>>,
-    ) -> Self {
+    pub fn new(source_state: TokenState, target_state: TokenState, salt: Option<Vec<u8>>) -> Self {
         Self {
             source_state,
             target_state,
@@ -296,7 +292,7 @@ impl SplitMintReason {
 mod tests {
     use super::*;
     use crate::types::predicate::UnmaskedPredicate;
-    
+
     #[test]
     fn test_inclusion_proof() {
         let root = DataHash::sha256(vec![1, 2, 3]);
@@ -337,11 +333,8 @@ mod tests {
         let source_state = TokenState::from_predicate(&predicate, None).unwrap();
         let target_state = TokenState::from_predicate(&predicate, Some(vec![1, 2, 3])).unwrap();
 
-        let transfer_data = TransferTransactionData::new(
-            source_state,
-            target_state,
-            Some(vec![7, 8, 9]),
-        );
+        let transfer_data =
+            TransferTransactionData::new(source_state, target_state, Some(vec![7, 8, 9]));
 
         assert!(transfer_data.hash().is_ok());
     }

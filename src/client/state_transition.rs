@@ -54,11 +54,9 @@ impl StateTransitionClient {
         }
 
         // Wait for inclusion proof
-        let proof = InclusionProofUtils::wait_inclusion_proof(
-            &self.aggregator,
-            &commitment.request_id,
-        )
-        .await?;
+        let proof =
+            InclusionProofUtils::wait_inclusion_proof(&self.aggregator, &commitment.request_id)
+                .await?;
 
         // Create token with transaction
         let transaction = commitment.to_transaction(proof);
@@ -79,7 +77,8 @@ impl StateTransitionClient {
         T: Clone + serde::Serialize + for<'de> serde::Deserialize<'de>,
     {
         // Create and sign transfer commitment
-        let commitment = TransferCommitment::create(token, target_state.clone(), salt, signing_key)?;
+        let commitment =
+            TransferCommitment::create(token, target_state.clone(), salt, signing_key)?;
 
         // Submit commitment
         let response = self.aggregator.submit_commitment(&commitment).await?;
@@ -92,11 +91,9 @@ impl StateTransitionClient {
         }
 
         // Wait for inclusion proof
-        let proof = InclusionProofUtils::wait_inclusion_proof(
-            &self.aggregator,
-            &commitment.request_id,
-        )
-        .await?;
+        let proof =
+            InclusionProofUtils::wait_inclusion_proof(&self.aggregator, &commitment.request_id)
+                .await?;
 
         // Create updated token
         let transfer_tx = commitment.to_transaction(proof);
@@ -108,10 +105,7 @@ impl StateTransitionClient {
     }
 
     /// Submit a mint commitment
-    pub async fn submit_mint_commitment(
-        &self,
-        commitment: &MintCommitment,
-    ) -> Result<String> {
+    pub async fn submit_mint_commitment(&self, commitment: &MintCommitment) -> Result<String> {
         let response = self.aggregator.submit_commitment(commitment).await?;
 
         if response.status != "accepted" && response.status != "success" {
@@ -192,11 +186,9 @@ impl StateTransitionClient {
             )));
         }
 
-        let proof = InclusionProofUtils::wait_inclusion_proof(
-            &self.aggregator,
-            &commitment.request_id,
-        )
-        .await?;
+        let proof =
+            InclusionProofUtils::wait_inclusion_proof(&self.aggregator, &commitment.request_id)
+                .await?;
 
         let transaction = Transaction::new(nametag_data.clone(), proof);
         let token = Token::new(nametag_data.target_state.clone(), transaction);
@@ -299,12 +291,7 @@ mod tests {
 
         let predicate = UnmaskedPredicate::new(key_pair.public_key().clone());
         let state = TokenState::from_predicate(&predicate, None).unwrap();
-        let mint_data = MintTransactionData::new(
-            TokenType::new(vec![1, 2, 3]),
-            state,
-            None,
-            None,
-        );
+        let mint_data = MintTransactionData::new(TokenType::new(vec![1, 2, 3]), state, None, None);
 
         let _builder = TokenBuilder::new(&client)
             .with_mint_data(mint_data)

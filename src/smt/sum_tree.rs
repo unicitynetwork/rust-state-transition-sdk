@@ -60,11 +60,7 @@ impl SumNode {
 
         // Include sum in hash calculation
         let sum_bytes = self.sum.to_bytes_be().1; // Get big-endian bytes
-        let hash = sha256_all(&[
-            &left_hash.imprint(),
-            &right_hash.imprint(),
-            &sum_bytes,
-        ]);
+        let hash = sha256_all(&[&left_hash.imprint(), &right_hash.imprint(), &sum_bytes]);
 
         self.hash = Some(hash.clone());
         hash
@@ -284,20 +280,14 @@ impl SparseMerkleSumTree {
                 SumProofNode::Left(hash, sum) => {
                     current_sum = current_sum + sum;
                     let sum_bytes = current_sum.to_bytes_be().1;
-                    current_hash = sha256_all(&[
-                        &hash.imprint(),
-                        &current_hash.imprint(),
-                        &sum_bytes,
-                    ]);
+                    current_hash =
+                        sha256_all(&[&hash.imprint(), &current_hash.imprint(), &sum_bytes]);
                 }
                 SumProofNode::Right(hash, sum) => {
                     current_sum = current_sum + sum;
                     let sum_bytes = current_sum.to_bytes_be().1;
-                    current_hash = sha256_all(&[
-                        &current_hash.imprint(),
-                        &hash.imprint(),
-                        &sum_bytes,
-                    ]);
+                    current_hash =
+                        sha256_all(&[&current_hash.imprint(), &hash.imprint(), &sum_bytes]);
                 }
             }
         }
@@ -346,8 +336,7 @@ mod tests {
         let hash = DataHash::sha256(vec![1, 2, 3]);
         let value = BigInt::from(100);
 
-        tree.add_leaf(BigInt::from(1), hash, value.clone())
-            .unwrap();
+        tree.add_leaf(BigInt::from(1), hash, value.clone()).unwrap();
         tree.build().unwrap();
 
         assert_eq!(tree.total_sum(), value);
@@ -382,8 +371,12 @@ mod tests {
             .unwrap();
         tree.add_leaf(index.clone(), leaf_hash.clone(), leaf_value.clone())
             .unwrap();
-        tree.add_leaf(BigInt::from(10), DataHash::sha256(vec![10]), BigInt::from(20))
-            .unwrap();
+        tree.add_leaf(
+            BigInt::from(10),
+            DataHash::sha256(vec![10]),
+            BigInt::from(20),
+        )
+        .unwrap();
 
         tree.build().unwrap();
         let root = tree.root_hash().unwrap();

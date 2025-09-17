@@ -25,9 +25,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create identities
     println!("👥 Creating identities...");
-    let alice = TestIdentity::alice()?;  // Escrow agent
-    let bob = TestIdentity::bob()?;      // Party 1
-    let carol = TestIdentity::carol()?;  // Party 2
+    let alice = TestIdentity::alice()?; // Escrow agent
+    let bob = TestIdentity::bob()?; // Party 1
+    let carol = TestIdentity::carol()?; // Party 2
 
     println!("  Alice (escrow): {}", alice.key_pair.public_hex());
     println!("  Bob (party 1): {}", bob.key_pair.public_hex());
@@ -81,10 +81,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create escrow predicates with time-locked conditions
     let escrow_nonce = b"escrow_swap_12345";
-    let escrow_predicate = MaskedPredicate::from_public_key_and_nonce(
-        alice.key_pair.public_key(),
-        escrow_nonce,
-    );
+    let escrow_predicate =
+        MaskedPredicate::from_public_key_and_nonce(alice.key_pair.public_key(), escrow_nonce);
 
     // Create proxy addresses for routing through nametags
     let alice_proxy = ProxyAddress::new(DataHash::sha256(alice_nametag.as_bytes().to_vec()));

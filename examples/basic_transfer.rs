@@ -37,10 +37,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Use masked predicate for initial ownership
     let nonce = b"alice_nonce_12345";
-    let alice_masked = MaskedPredicate::from_public_key_and_nonce(
-        alice.key_pair.public_key(),
-        nonce
-    );
+    let alice_masked =
+        MaskedPredicate::from_public_key_and_nonce(alice.key_pair.public_key(), nonce);
     let alice_state = TokenState::from_predicate(&alice_masked, Some(b"Alice's token".to_vec()))?;
 
     let mint_data = MintTransactionData::new(
@@ -50,7 +48,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         None,
     );
 
-    match client.mint_token(mint_data, alice.key_pair.secret_key()).await {
+    match client
+        .mint_token(mint_data, alice.key_pair.secret_key())
+        .await
+    {
         Ok(token) => {
             println!("  ✅ Token minted successfully!");
             println!("  Token ID: {}", token.id()?);
@@ -59,18 +60,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("\n📤 Step 2: Transferring token from Alice to Bob...");
 
             let bob_predicate = UnmaskedPredicate::new(bob.key_pair.public_key().clone());
-            let bob_state = TokenState::from_predicate(&bob_predicate, Some(b"Bob's token".to_vec()))?;
+            let bob_state =
+                TokenState::from_predicate(&bob_predicate, Some(b"Bob's token".to_vec()))?;
 
-            match client.transfer_token(
-                &token,
-                bob_state,
-                Some(b"transfer_salt_123".to_vec()),
-                alice.key_pair.secret_key(),
-            ).await {
+            match client
+                .transfer_token(
+                    &token,
+                    bob_state,
+                    Some(b"transfer_salt_123".to_vec()),
+                    alice.key_pair.secret_key(),
+                )
+                .await
+            {
                 Ok(transferred_token) => {
                     println!("  ✅ Token transferred successfully!");
                     println!("  New state owner: Bob");
-                    println!("  Transaction count: {}", transferred_token.transactions.len());
+                    println!(
+                        "  Transaction count: {}",
+                        transferred_token.transactions.len()
+                    );
                 }
                 Err(e) => {
                     println!("  ❌ Transfer failed: {}", e);

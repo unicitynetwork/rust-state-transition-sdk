@@ -1,5 +1,8 @@
 use crate::error::{Result, SdkError};
-use crate::types::primitives::{DataHash, RIPEMD160_ALGORITHM_ID, SHA224_ALGORITHM_ID, SHA256_ALGORITHM_ID, SHA384_ALGORITHM_ID, SHA512_ALGORITHM_ID};
+use crate::types::primitives::{
+    DataHash, RIPEMD160_ALGORITHM_ID, SHA224_ALGORITHM_ID, SHA256_ALGORITHM_ID,
+    SHA384_ALGORITHM_ID, SHA512_ALGORITHM_ID,
+};
 use sha2::{Digest, Sha224, Sha256, Sha384, Sha512};
 
 /// Hash algorithm enumeration

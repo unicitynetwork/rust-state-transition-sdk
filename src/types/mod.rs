@@ -11,8 +11,7 @@ pub use commitment::{
     Authenticator, Commitment, CommitmentType, MintCommitment, TransferCommitment,
 };
 pub use predicate::{
-    BurnPredicate, MaskedPredicate, Predicate, PredicateReference, PredicateType,
-    UnmaskedPredicate,
+    BurnPredicate, MaskedPredicate, Predicate, PredicateReference, PredicateType, UnmaskedPredicate,
 };
 pub use primitives::{DataHash, PublicKey, RequestId, Signature};
 pub use token::{Token, TokenCoinData, TokenId, TokenState, TokenType};

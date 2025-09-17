@@ -13,7 +13,8 @@ fn test_json_serialization_matches_java() {
     let public_key = key_pair.public_key().clone();
 
     let predicate = UnmaskedPredicate::new(public_key.clone());
-    let target_state = TokenState::from_predicate(&predicate, None).expect("Failed to create state");
+    let target_state =
+        TokenState::from_predicate(&predicate, None).expect("Failed to create state");
 
     let mint_data = MintTransactionData::new(
         TokenType::new(vec![1, 2, 3, 4]),
@@ -22,8 +23,8 @@ fn test_json_serialization_matches_java() {
         None,
     );
 
-    let commitment = MintCommitment::create(mint_data, signing_key)
-        .expect("Failed to create commitment");
+    let commitment =
+        MintCommitment::create(mint_data, signing_key).expect("Failed to create commitment");
 
     // Convert authenticator to DTO
     let auth_dto = AuthenticatorDto::from(&commitment.authenticator);
@@ -56,11 +57,11 @@ fn test_json_serialization_matches_java() {
     let auth_obj = req_obj["authenticator"].as_object().unwrap();
 
     assert_eq!(auth_obj["algorithm"].as_str().unwrap(), "secp256k1");
-    assert_eq!(req_obj["requestId"].as_str().unwrap().len(), 68);  // 34 bytes hex
-    assert_eq!(req_obj["transactionHash"].as_str().unwrap().len(), 68);  // 34 bytes hex
-    assert_eq!(auth_obj["publicKey"].as_str().unwrap().len(), 66);  // 33 bytes hex
-    assert_eq!(auth_obj["signature"].as_str().unwrap().len(), 130);  // 65 bytes hex
-    assert_eq!(auth_obj["stateHash"].as_str().unwrap().len(), 68);  // 34 bytes hex
+    assert_eq!(req_obj["requestId"].as_str().unwrap().len(), 68); // 34 bytes hex
+    assert_eq!(req_obj["transactionHash"].as_str().unwrap().len(), 68); // 34 bytes hex
+    assert_eq!(auth_obj["publicKey"].as_str().unwrap().len(), 66); // 33 bytes hex
+    assert_eq!(auth_obj["signature"].as_str().unwrap().len(), 130); // 65 bytes hex
+    assert_eq!(auth_obj["stateHash"].as_str().unwrap().len(), 68); // 34 bytes hex
     assert_eq!(req_obj["receipt"].as_bool().unwrap(), false);
 
     println!("✅ All fields present and correctly formatted!");
@@ -85,7 +86,8 @@ async fn test_raw_submit_commitment() {
     let public_key = key_pair.public_key().clone();
 
     let predicate = UnmaskedPredicate::new(public_key.clone());
-    let target_state = TokenState::from_predicate(&predicate, None).expect("Failed to create state");
+    let target_state =
+        TokenState::from_predicate(&predicate, None).expect("Failed to create state");
 
     let mint_data = MintTransactionData::new(
         TokenType::new(vec![1, 2, 3, 4]),
@@ -94,8 +96,8 @@ async fn test_raw_submit_commitment() {
         None,
     );
 
-    let commitment = MintCommitment::create(mint_data, signing_key)
-        .expect("Failed to create commitment");
+    let commitment =
+        MintCommitment::create(mint_data, signing_key).expect("Failed to create commitment");
 
     // Convert to DTO
     let auth_dto = AuthenticatorDto::from(&commitment.authenticator);
@@ -115,7 +117,10 @@ async fn test_raw_submit_commitment() {
     });
 
     println!("Sending submit_commitment to {}", aggregator_url);
-    println!("Request params: {}", serde_json::to_string_pretty(&params).unwrap());
+    println!(
+        "Request params: {}",
+        serde_json::to_string_pretty(&params).unwrap()
+    );
 
     let client = Client::new();
     let response = client
@@ -166,7 +171,10 @@ async fn test_raw_json_rpc_call() {
     });
 
     println!("Sending raw JSON-RPC request to {}", aggregator_url);
-    println!("Request: {}", serde_json::to_string_pretty(&request).unwrap());
+    println!(
+        "Request: {}",
+        serde_json::to_string_pretty(&request).unwrap()
+    );
 
     let response = client
         .post(aggregator_url)

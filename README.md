@@ -1,5 +1,7 @@
 # Unicity SDK for Rust
 
+[![CI](https://github.com/unicitynetwork/rust-state-transition-sdk/workflows/CI/badge.svg)](https://github.com/unicitynetwork/rust-state-transition-sdk/actions/workflows/ci.yml)
+
 A comprehensive Rust implementation of the Unicity Protocol for creating and managing off-chain token state transitions with on-chain commitments.
 
 ## Features
@@ -381,9 +383,9 @@ MIT OR Apache-2.0
 ## Support
 
 For issues and questions:
-- GitHub Issues: [github.com/unicity-labs/rust-sdk](https://github.com/unicity-labs/rust-sdk)
+- GitHub Issues: [github.com/unicitynetwork/rust-state-transition-sdk](https://github.com/unicitynetwork/rust-state-transition-sdk)
 - Documentation: [docs.unicity.network](https://docs.unicity.network)
 
 ## Acknowledgments
 
-This SDK is a Rust port of the [Java State Transition SDK](https://github.com/unicity-labs/java-state-transition-sdk) and maintains full compatibility with the Unicity Protocol.
+This SDK is a Rust port of the [Java State Transition SDK](https://github.com/unicitynetwork/java-state-transition-sdk) and maintains full compatibility with the Unicity Protocol.

@@ -23,7 +23,8 @@ async fn test_aggregator_payload_format() {
 
     // Create a test mint commitment
     let predicate = UnmaskedPredicate::new(public_key.clone());
-    let target_state = TokenState::from_predicate(&predicate, None).expect("Failed to create state");
+    let target_state =
+        TokenState::from_predicate(&predicate, None).expect("Failed to create state");
 
     let mint_data = MintTransactionData::new(
         TokenType::new(vec![1, 2, 3, 4]),
@@ -32,14 +33,26 @@ async fn test_aggregator_payload_format() {
         None,
     );
 
-    let commitment = MintCommitment::create(mint_data, signing_key)
-        .expect("Failed to create commitment");
+    let commitment =
+        MintCommitment::create(mint_data, signing_key).expect("Failed to create commitment");
 
     println!("Created commitment with:");
-    println!("  - Request ID: {}", hex::encode(commitment.request_id().as_data_hash().imprint()));
-    println!("  - Transaction Hash: {}", hex::encode(commitment.transaction_hash().imprint()));
-    println!("  - Authenticator Algorithm: {}", commitment.authenticator().algorithm);
-    println!("  - State Hash: {}", hex::encode(commitment.authenticator().state_hash.imprint()));
+    println!(
+        "  - Request ID: {}",
+        hex::encode(commitment.request_id().as_data_hash().imprint())
+    );
+    println!(
+        "  - Transaction Hash: {}",
+        hex::encode(commitment.transaction_hash().imprint())
+    );
+    println!(
+        "  - Authenticator Algorithm: {}",
+        commitment.authenticator().algorithm
+    );
+    println!(
+        "  - State Hash: {}",
+        hex::encode(commitment.authenticator().state_hash.imprint())
+    );
 
     // Submit the commitment
     println!("\nSubmitting commitment to aggregator...");
@@ -77,7 +90,10 @@ async fn test_aggregator_payload_format() {
     // Test health check
     match client.health_check().await {
         Ok(healthy) => {
-            println!("✅ Health check: {}", if healthy { "HEALTHY" } else { "UNHEALTHY" });
+            println!(
+                "✅ Health check: {}",
+                if healthy { "HEALTHY" } else { "UNHEALTHY" }
+            );
         }
         Err(e) => {
             println!("❌ Failed health check: {:?}", e);
@@ -121,9 +137,21 @@ async fn test_json_payload_structure() {
 
     println!("✅ AuthenticatorDto structure is correct:");
     println!("  - algorithm: {}", dto.algorithm);
-    println!("  - public_key: {} (length: {})", &dto.public_key[..10], dto.public_key.len());
-    println!("  - signature: {} (length: {})", &dto.signature[..10], dto.signature.len());
-    println!("  - state_hash: {} (length: {})", &dto.state_hash[..10], dto.state_hash.len());
+    println!(
+        "  - public_key: {} (length: {})",
+        &dto.public_key[..10],
+        dto.public_key.len()
+    );
+    println!(
+        "  - signature: {} (length: {})",
+        &dto.signature[..10],
+        dto.signature.len()
+    );
+    println!(
+        "  - state_hash: {} (length: {})",
+        &dto.state_hash[..10],
+        dto.state_hash.len()
+    );
 
     // Test JSON serialization
     let json = serde_json::to_string_pretty(&dto).expect("Failed to serialize");
