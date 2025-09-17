@@ -53,6 +53,7 @@
 pub mod client;
 pub mod crypto;
 pub mod error;
+pub mod minter;
 pub mod smt;
 pub mod types;
 

@@ -2,7 +2,7 @@ use crate::client::jsonrpc::JsonRpcHttpTransport;
 use crate::error::{Result, SdkError};
 use crate::types::commitment::{Authenticator, Commitment};
 use crate::types::primitives::{DataHash, RequestId};
-use crate::types::transaction::InclusionProof;
+use crate::types::transaction::{InclusionProof, PathDirection, PathElement};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::time::Duration;
@@ -48,14 +48,29 @@ pub struct SubmitCommitmentResponse {
     pub message: Option<String>,
 }
 
-/// Get inclusion proof response
+/// Get inclusion proof response - matches actual aggregator response
 #[derive(Debug, Deserialize)]
 pub struct GetInclusionProofResponse {
-    #[serde(rename = "requestId")]
-    pub request_id: String,
-    pub status: String,
-    #[serde(rename = "inclusionProof", skip_serializing_if = "Option::is_none")]
-    pub inclusion_proof: Option<InclusionProofDto>,
+    #[serde(rename = "merkleTreePath")]
+    pub merkle_tree_path: Option<MerkleTreePathDto>,
+    pub authenticator: Option<serde_json::Value>, // Can be null
+    #[serde(rename = "transactionHash")]
+    pub transaction_hash: Option<String>, // Can be null
+}
+
+/// Merkle tree path DTO
+#[derive(Debug, Deserialize)]
+pub struct MerkleTreePathDto {
+    pub root: String,
+    pub steps: Vec<MerkleStepDto>,
+}
+
+/// Merkle step DTO
+#[derive(Debug, Deserialize)]
+pub struct MerkleStepDto {
+    pub branch: Vec<String>,
+    pub path: String,
+    pub sibling: Vec<String>,
 }
 
 /// Inclusion proof DTO
@@ -199,8 +214,42 @@ impl AggregatorClient {
         let proof_response: GetInclusionProofResponse =
             serde_json::from_value(response).map_err(|e| SdkError::Json(e))?;
 
-        if let Some(proof_dto) = proof_response.inclusion_proof {
-            Ok(Some(proof_dto.to_domain()?))
+        // Convert the merkle tree path response to an inclusion proof
+        if let Some(merkle_path) = proof_response.merkle_tree_path {
+            // Parse the block height from the first step's path (contains block info)
+            let block_height = if !merkle_path.steps.is_empty() {
+                // The path field in the first step contains block height info
+                // For now, use a placeholder - we may need to parse this from the path
+                1u64 // TODO: Extract actual block height from path or add to response
+            } else {
+                0u64
+            };
+
+            // Convert steps to path elements
+            let mut path = Vec::new();
+            for step in merkle_path.steps {
+                // Each step has branch, path, and sibling
+                // The sibling contains the hash we need for proof verification
+                if !step.sibling.is_empty() {
+                    // Determine direction based on branch value
+                    let direction = if step.branch.is_empty() || step.branch[0] == "0" {
+                        PathDirection::Left
+                    } else {
+                        PathDirection::Right
+                    };
+
+                    // Use the first sibling hash
+                    let hash_bytes = hex::decode(&step.sibling[0])?;
+                    let hash = DataHash::from_imprint(&hash_bytes)?;
+                    path.push(PathElement::new(direction, hash));
+                }
+            }
+
+            // Parse root
+            let root_bytes = hex::decode(&merkle_path.root)?;
+            let root = DataHash::from_imprint(&root_bytes)?;
+
+            Ok(Some(InclusionProof::new(block_height, path, root)))
         } else {
             Ok(None)
         }

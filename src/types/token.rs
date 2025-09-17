@@ -46,6 +46,35 @@ impl TokenId {
         bytes.copy_from_slice(&hasher.finalize());
         Self(bytes)
     }
+
+    /// Generate a unique token ID using timestamp and random bytes
+    /// This ensures uniqueness across test runs to avoid REQUEST_ID_EXISTS errors
+    pub fn unique() -> Self {
+        let mut bytes = [0u8; 32];
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        bytes[0..16].copy_from_slice(&timestamp.to_be_bytes());
+        use rand::RngCore;
+        rand::thread_rng().fill_bytes(&mut bytes[16..]);
+        Self(bytes)
+    }
+
+    /// Generate a unique token ID with a marker byte for categorization
+    /// Useful for distinguishing token types in tests
+    pub fn unique_with_marker(marker: u8) -> Self {
+        let mut bytes = [0u8; 32];
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        bytes[0..16].copy_from_slice(&timestamp.to_be_bytes());
+        bytes[16] = marker;
+        use rand::RngCore;
+        rand::thread_rng().fill_bytes(&mut bytes[17..]);
+        Self(bytes)
+    }
 }
 
 impl std::fmt::Display for TokenId {
@@ -271,5 +300,40 @@ mod tests {
         assert_eq!(coin_data.get_amount("ETH"), Some(50));
         assert_eq!(coin_data.get_amount("XRP"), None);
         assert_eq!(coin_data.num_types(), 2);
+    }
+
+    #[test]
+    fn test_unique_token_id() {
+        // Generate multiple unique token IDs
+        let id1 = TokenId::unique();
+        let id2 = TokenId::unique();
+        let id3 = TokenId::unique();
+
+        // They should all be different
+        assert_ne!(id1, id2);
+        assert_ne!(id2, id3);
+        assert_ne!(id1, id3);
+
+        // Each should be 32 bytes
+        assert_eq!(id1.as_bytes().len(), 32);
+        assert_eq!(id2.as_bytes().len(), 32);
+        assert_eq!(id3.as_bytes().len(), 32);
+    }
+
+    #[test]
+    fn test_unique_token_id_with_marker() {
+        // Generate IDs with different markers
+        let id1 = TokenId::unique_with_marker(1);
+        let id2 = TokenId::unique_with_marker(2);
+        let id3 = TokenId::unique_with_marker(1);
+
+        // They should all be different (even with same marker)
+        assert_ne!(id1, id2);
+        assert_ne!(id1, id3);
+
+        // Check that marker is at position 16
+        assert_eq!(id1.as_bytes()[16], 1);
+        assert_eq!(id2.as_bytes()[16], 2);
+        assert_eq!(id3.as_bytes()[16], 1);
     }
 }

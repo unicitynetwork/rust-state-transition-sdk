@@ -2,7 +2,7 @@ use unicity_sdk::client::aggregator::AuthenticatorDto;
 use unicity_sdk::crypto::KeyPair;
 use unicity_sdk::types::commitment::MintCommitment;
 use unicity_sdk::types::predicate::UnmaskedPredicate;
-use unicity_sdk::types::token::{TokenState, TokenType};
+use unicity_sdk::types::token::{TokenState, TokenType, TokenId};
 use unicity_sdk::types::transaction::MintTransactionData;
 
 #[test]
@@ -16,15 +16,18 @@ fn test_json_serialization_matches_java() {
     let target_state =
         TokenState::from_predicate(&predicate, None).expect("Failed to create state");
 
+    let token_id = TokenId::unique();
     let mint_data = MintTransactionData::new(
+        token_id,
         TokenType::new(vec![1, 2, 3, 4]),
         target_state,
         Some(vec![5, 6, 7, 8]),
+        Some(vec![1, 2, 3, 4, 5]),
         None,
     );
 
     let commitment =
-        MintCommitment::create(mint_data, signing_key).expect("Failed to create commitment");
+        MintCommitment::create(mint_data).expect("Failed to create commitment");
 
     // Convert authenticator to DTO
     let auth_dto = AuthenticatorDto::from(&commitment.authenticator);
@@ -75,7 +78,7 @@ async fn test_raw_submit_commitment() {
     use unicity_sdk::crypto::KeyPair;
     use unicity_sdk::types::commitment::MintCommitment;
     use unicity_sdk::types::predicate::UnmaskedPredicate;
-    use unicity_sdk::types::token::{TokenState, TokenType};
+    use unicity_sdk::types::token::{TokenState, TokenType, TokenId};
     use unicity_sdk::types::transaction::MintTransactionData;
 
     let aggregator_url = "https://goggregator-test.unicity.network";
@@ -89,15 +92,18 @@ async fn test_raw_submit_commitment() {
     let target_state =
         TokenState::from_predicate(&predicate, None).expect("Failed to create state");
 
+    let token_id = TokenId::unique();
     let mint_data = MintTransactionData::new(
+        token_id,
         TokenType::new(vec![1, 2, 3, 4]),
         target_state,
         Some(vec![5, 6, 7, 8]),
+        Some(vec![1, 2, 3, 4, 5]),
         None,
     );
 
     let commitment =
-        MintCommitment::create(mint_data, signing_key).expect("Failed to create commitment");
+        MintCommitment::create(mint_data).expect("Failed to create commitment");
 
     // Convert to DTO
     let auth_dto = AuthenticatorDto::from(&commitment.authenticator);

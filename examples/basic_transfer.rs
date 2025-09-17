@@ -8,7 +8,7 @@
 use unicity_sdk::client::StateTransitionClient;
 use unicity_sdk::crypto::TestIdentity;
 use unicity_sdk::types::predicate::{MaskedPredicate, UnmaskedPredicate};
-use unicity_sdk::types::token::{TokenState, TokenType};
+use unicity_sdk::types::token::{TokenState, TokenType, TokenId};
 use unicity_sdk::types::transaction::MintTransactionData;
 
 #[tokio::main]
@@ -41,15 +41,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         MaskedPredicate::from_public_key_and_nonce(alice.key_pair.public_key(), nonce);
     let alice_state = TokenState::from_predicate(&alice_masked, Some(b"Alice's token".to_vec()))?;
 
+    let token_id = TokenId::unique();
     let mint_data = MintTransactionData::new(
+        token_id,
         TokenType::new(b"EXAMPLE_TOKEN".to_vec()),
         alice_state.clone(),
         Some(b"Initial token data".to_vec()),
+        Some(vec![1, 2, 3, 4, 5]),
         None,
     );
 
     match client
-        .mint_token(mint_data, alice.key_pair.secret_key())
+        .mint_token(mint_data)
         .await
     {
         Ok(token) => {

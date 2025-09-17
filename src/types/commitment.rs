@@ -107,20 +107,31 @@ impl MintCommitment {
         })
     }
 
-    /// Create and sign a mint commitment
-    pub fn create(
-        mint_data: MintTransactionData,
-        signing_key: &secp256k1::SecretKey,
-    ) -> Result<Self> {
+    /// Create and sign a mint commitment using the universal minter
+    pub fn create(mint_data: MintTransactionData) -> Result<Self> {
+        use crate::minter::UniversalMinter;
         use secp256k1::{Message, Secp256k1};
 
+        // Use the universal minter to get the signing key for this token
+        let signing_key = UniversalMinter::create_signing_key(mint_data.token_id.as_bytes())?;
+
         let secp = Secp256k1::new();
-        let public_key_secp = secp256k1::PublicKey::from_secret_key(&secp, signing_key);
+        let public_key_secp = secp256k1::PublicKey::from_secret_key(&secp, &signing_key);
         let public_key_bytes = public_key_secp.serialize();
         let public_key = PublicKey::new(public_key_bytes)?;
 
-        // Calculate state hash (for MintCommitment, it's the hash of target state)
-        let state_hash = mint_data.target_state.hash()?;
+        // For mint, the state hash is derived from the token ID + MINT_SUFFIX
+        // This matches Java's MintTransactionState.create(tokenId).getHash()
+        // MINT_SUFFIX is a fixed constant used in Java
+        const MINT_SUFFIX: &str = "9e82002c144d7c5796c50f6db50a0c7bbd7f717ae3af6c6c71a3e9eba3022730";
+        let mint_suffix = hex::decode(MINT_SUFFIX)
+            .map_err(|e| SdkError::Crypto(format!("Invalid mint suffix: {}", e)))?;
+
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(mint_data.token_id.as_bytes());
+        hasher.update(&mint_suffix);
+        let state_hash = DataHash::sha256(hasher.finalize().to_vec());
 
         // Calculate transaction hash
         let transaction_hash = mint_data.hash()?;
@@ -128,14 +139,15 @@ impl MintCommitment {
         // Calculate request ID
         let request_id = RequestId::new(&public_key, &state_hash);
 
-        // Sign the state hash (not the transaction hash!)
+        // Sign the transaction hash (not the state hash!)
+        // The authenticator signs the transaction data, while state hash is stored for reference
         let message = Message::from_digest(
-            state_hash
+            transaction_hash
                 .data()
                 .try_into()
-                .map_err(|_| SdkError::Crypto("State hash must be 32 bytes".to_string()))?,
+                .map_err(|_| SdkError::Crypto("Transaction hash must be 32 bytes".to_string()))?,
         );
-        let recoverable_sig = secp.sign_ecdsa_recoverable(message, signing_key);
+        let recoverable_sig = secp.sign_ecdsa_recoverable(message, &signing_key);
         let (recovery_id, sig_bytes) = recoverable_sig.serialize_compact();
 
         let mut signature_bytes = [0u8; 65];
@@ -242,14 +254,15 @@ impl TransferCommitment {
         let request_id = RequestId::new(&public_key, &state_hash);
         let source_token_id = token.id()?;
 
-        // Sign the state hash (not the transaction hash!)
+        // Sign the transaction hash (not the state hash!)
+        // The authenticator signs the transaction data, while state hash is stored for reference
         let message = Message::from_digest(
-            state_hash
+            transaction_hash
                 .data()
                 .try_into()
-                .map_err(|_| SdkError::Crypto("State hash must be 32 bytes".to_string()))?,
+                .map_err(|_| SdkError::Crypto("Transaction hash must be 32 bytes".to_string()))?,
         );
-        let recoverable_sig = secp.sign_ecdsa_recoverable(message, signing_key);
+        let recoverable_sig = secp.sign_ecdsa_recoverable(message, &signing_key);
         let (recovery_id, sig_bytes) = recoverable_sig.serialize_compact();
 
         let mut signature_bytes = [0u8; 65];
@@ -306,30 +319,31 @@ mod tests {
 
     #[test]
     fn test_mint_commitment_creation() {
-        use secp256k1::rand;
-        use secp256k1::Secp256k1;
-
-        let secp = Secp256k1::new();
-        let (secret_key, _) = secp.generate_keypair(&mut rand::rng());
+        use crate::types::token::TokenId;
 
         let key_pair = KeyPair::generate().unwrap();
         let public_key = key_pair.public_key().clone();
         let predicate = UnmaskedPredicate::new(public_key);
         let target_state = TokenState::from_predicate(&predicate, None).unwrap();
 
+        let token_id = TokenId::new([1u8; 32]);
         let mint_data = MintTransactionData::new(
+            token_id,
             TokenType::new(vec![1, 2, 3]),
             target_state,
             Some(vec![4, 5, 6]),
+            Some(vec![7, 8, 9]),
             None,
         );
 
-        let commitment = MintCommitment::create(mint_data, &secret_key).unwrap();
+        // MintCommitment::create uses universal minter, no secret key needed
+        let commitment = MintCommitment::create(mint_data).unwrap();
         assert_eq!(commitment.commitment_type(), CommitmentType::Mint);
         assert_eq!(commitment.authenticator.algorithm, "secp256k1");
+        // Verify signature is against transaction hash, not state hash
         assert!(commitment
             .authenticator
-            .verify(commitment.authenticator.state_hash.data())
+            .verify(commitment.transaction_hash.data())
             .unwrap());
     }
 

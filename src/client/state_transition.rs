@@ -34,14 +34,13 @@ impl StateTransitionClient {
         }
     }
 
-    /// Mint a new token
+    /// Mint a new token using the universal minter
     pub async fn mint_token(
         &self,
         mint_data: MintTransactionData,
-        signing_key: &SecretKey,
     ) -> Result<Token<MintTransactionData>> {
-        // Create and sign commitment
-        let commitment = MintCommitment::create(mint_data.clone(), signing_key)?;
+        // Create and sign commitment using universal minter
+        let commitment = MintCommitment::create(mint_data.clone())?;
 
         // Submit commitment
         let response = self.aggregator.submit_commitment(&commitment).await?;
@@ -162,20 +161,29 @@ impl StateTransitionClient {
         &self,
         nametag: String,
         target_state: TokenState,
-        signing_key: &SecretKey,
+        _signing_key: &SecretKey,
     ) -> Result<Token<NametagMintTransactionData>> {
         let nametag_data = NametagMintTransactionData::new(nametag, target_state.clone());
 
         // For nametag, we need to wrap it as mint data
-        use crate::types::token::TokenType;
+        use crate::types::token::{TokenType, TokenId};
+
+        // Generate a random token ID for the nametag
+        let mut token_id_bytes = [0u8; 32];
+        use rand::RngCore;
+        rand::thread_rng().fill_bytes(&mut token_id_bytes);
+        let token_id = TokenId::new(token_id_bytes);
+
         let mint_data = MintTransactionData::new(
+            token_id,
             TokenType::new(b"NAMETAG".to_vec()),
             target_state,
             Some(serde_json::to_vec(&nametag_data)?),
+            Some(vec![0u8; 5]), // Add salt for uniqueness
             None,
         );
 
-        let commitment = MintCommitment::create(mint_data.clone(), signing_key)?;
+        let commitment = MintCommitment::create(mint_data.clone())?;
 
         let response = self.aggregator.submit_commitment(&commitment).await?;
 
@@ -263,11 +271,8 @@ impl<'a> TokenBuilder<'a> {
             .mint_data
             .ok_or_else(|| SdkError::InvalidParameter("Missing mint data".to_string()))?;
 
-        let signing_key = self
-            .signing_key
-            .ok_or_else(|| SdkError::InvalidParameter("Missing signing key".to_string()))?;
-
-        self.client.mint_token(mint_data, &signing_key).await
+        // Signing key no longer needed - uses universal minter
+        self.client.mint_token(mint_data).await
     }
 }
 
@@ -286,12 +291,21 @@ mod tests {
 
     #[test]
     fn test_token_builder() {
+        use crate::types::token::TokenId;
         let client = StateTransitionClient::new("http://localhost:3000".to_string()).unwrap();
         let key_pair = KeyPair::generate().unwrap();
 
         let predicate = UnmaskedPredicate::new(key_pair.public_key().clone());
         let state = TokenState::from_predicate(&predicate, None).unwrap();
-        let mint_data = MintTransactionData::new(TokenType::new(vec![1, 2, 3]), state, None, None);
+        let token_id = TokenId::new([1u8; 32]);
+        let mint_data = MintTransactionData::new(
+            token_id,
+            TokenType::new(vec![1, 2, 3]),
+            state,
+            None,
+            Some(vec![1, 2, 3, 4, 5]),
+            None,
+        );
 
         let _builder = TokenBuilder::new(&client)
             .with_mint_data(mint_data)

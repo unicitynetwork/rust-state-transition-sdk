@@ -2,7 +2,7 @@ use unicity_sdk::client::{AggregatorClient, StateTransitionClient};
 use unicity_sdk::crypto::{KeyPair, TestIdentity};
 use unicity_sdk::types::commitment::{MintCommitment, TransferCommitment};
 use unicity_sdk::types::predicate::{MaskedPredicate, UnmaskedPredicate};
-use unicity_sdk::types::token::{Token, TokenState, TokenType};
+use unicity_sdk::types::token::{Token, TokenState, TokenType, TokenId};
 use unicity_sdk::types::transaction::MintTransactionData;
 use unicity_sdk::types::{GenericAddress, ProxyAddress};
 use unicity_sdk::{init, Config};
@@ -27,18 +27,19 @@ async fn test_basic_token_mint() {
         MaskedPredicate::from_public_key_and_nonce(alice.key_pair.public_key(), nonce);
     let state = TokenState::from_predicate(&masked_predicate, Some(vec![1, 2, 3])).unwrap();
 
-    // Create mint data
+    // Create mint data with unique token ID
+    let token_id = TokenId::unique();
     let mint_data = MintTransactionData::new(
+        token_id,
         TokenType::new(b"TEST_TOKEN".to_vec()),
         state,
         Some(b"test_data".to_vec()),
+        Some(vec![1, 2, 3, 4, 5]),
         None,
     );
 
-    // Mint the token
-    let result = client
-        .mint_token(mint_data, alice.key_pair.secret_key())
-        .await;
+    // Mint the token (uses universal minter internally)
+    let result = client.mint_token(mint_data).await;
 
     match result {
         Ok(token) => {
@@ -65,15 +66,18 @@ async fn test_token_transfer_flow() {
     let alice_predicate = UnmaskedPredicate::new(alice.key_pair.public_key().clone());
     let alice_state = TokenState::from_predicate(&alice_predicate, None).unwrap();
 
+    let token_id = TokenId::unique();
     let mint_data = MintTransactionData::new(
+        token_id,
         TokenType::new(b"TRANSFER_TEST".to_vec()),
         alice_state.clone(),
         None,
+        Some(vec![1, 2, 3, 4, 5]),
         None,
     );
 
-    // Create commitment
-    let mint_commitment = MintCommitment::create(mint_data.clone(), alice.key_pair.secret_key());
+    // Create commitment (uses universal minter)
+    let mint_commitment = MintCommitment::create(mint_data.clone());
 
     match mint_commitment {
         Ok(commitment) => {
@@ -177,14 +181,18 @@ async fn test_concurrent_commitments() {
             let predicate = UnmaskedPredicate::new(key_pair.public_key().clone());
             let state = TokenState::from_predicate(&predicate, None).unwrap();
 
+            // Use unique token ID with index marker for concurrent tests
+            let token_id = TokenId::unique_with_marker(i as u8);
             let mint_data = MintTransactionData::new(
+                token_id,
                 TokenType::new(format!("CONCURRENT_{}", i).into_bytes()),
                 state,
                 None,
+                Some(vec![1, 2, 3, 4, 5]),
                 None,
             );
 
-            let commitment = MintCommitment::create(mint_data, key_pair.secret_key()).unwrap();
+            let commitment = MintCommitment::create(mint_data).unwrap();
 
             client_clone.submit_commitment(&commitment).await
         });
@@ -261,14 +269,18 @@ async fn test_performance() {
         let predicate = UnmaskedPredicate::new(key_pair.public_key().clone());
         let state = TokenState::from_predicate(&predicate, None).unwrap();
 
+        // Use unique token ID with marker 255 for perf tests
+        let token_id = TokenId::unique_with_marker(255);
         let mint_data = MintTransactionData::new(
+            token_id,
             TokenType::new(b"PERF_TEST".to_vec()),
             state,
             Some(vec![i as u8]),
+            Some(vec![1, 2, 3, 4, 5]),
             None,
         );
 
-        let commitment = MintCommitment::create(mint_data, key_pair.secret_key()).unwrap();
+        let commitment = MintCommitment::create(mint_data).unwrap();
 
         match client.aggregator().submit_commitment(&commitment).await {
             Ok(_) => successful += 1,

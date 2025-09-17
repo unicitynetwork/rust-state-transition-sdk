@@ -10,7 +10,7 @@ use unicity_sdk::crypto::TestIdentity;
 use unicity_sdk::types::address::{DirectAddress, ProxyAddress};
 use unicity_sdk::types::predicate::{MaskedPredicate, PredicateReference, UnmaskedPredicate};
 use unicity_sdk::types::primitives::DataHash;
-use unicity_sdk::types::token::{TokenState, TokenType};
+use unicity_sdk::types::token::{TokenState, TokenType, TokenId};
 use unicity_sdk::types::transaction::MintTransactionData;
 
 #[tokio::main]
@@ -52,24 +52,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n🪙 Step 2: Creating tokens to swap...");
 
     // Bob's token (e.g., 100 BTC)
+    let bob_token_id = TokenId::unique_with_marker(1);
     let bob_token_data = MintTransactionData::new(
+        bob_token_id,
         TokenType::new(b"BTC".to_vec()),
         TokenState::from_predicate(
             &UnmaskedPredicate::new(bob.key_pair.public_key().clone()),
             Some(b"100 BTC".to_vec()),
         )?,
         Some(b"Bob's Bitcoin".to_vec()),
+        Some(vec![1, 2, 3, 4, 5]),
         None,
     );
 
     // Carol's token (e.g., 2000 ETH)
+    let carol_token_id = TokenId::unique_with_marker(2);
     let carol_token_data = MintTransactionData::new(
+        carol_token_id,
         TokenType::new(b"ETH".to_vec()),
         TokenState::from_predicate(
             &UnmaskedPredicate::new(carol.key_pair.public_key().clone()),
             Some(b"2000 ETH".to_vec()),
         )?,
         Some(b"Carol's Ethereum".to_vec()),
+        Some(vec![6, 7, 8, 9, 10]),
         None,
     );
 

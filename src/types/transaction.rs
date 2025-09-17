@@ -125,10 +125,13 @@ pub enum PathDirection {
 /// Mint transaction data for token creation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MintTransactionData {
+    pub token_id: TokenId,  // Added: unique token identifier
     pub token_type: TokenType,
     pub target_state: TokenState,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub data: Option<Vec<u8>>,
+    pub data: Option<Vec<u8>>,  // Token-specific metadata
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub salt: Option<Vec<u8>>,  // Added: salt for uniqueness
     #[serde(skip_serializing_if = "Option::is_none")]
     pub split_mint_reason: Option<SplitMintReason>,
 }
@@ -136,46 +139,81 @@ pub struct MintTransactionData {
 impl MintTransactionData {
     /// Create new mint transaction data
     pub fn new(
+        token_id: TokenId,
         token_type: TokenType,
         target_state: TokenState,
         data: Option<Vec<u8>>,
+        salt: Option<Vec<u8>>,
         split_mint_reason: Option<SplitMintReason>,
     ) -> Self {
         Self {
+            token_id,
             token_type,
             target_state,
             data,
+            salt,
             split_mint_reason,
         }
     }
 
-    /// Compute the hash of the mint data
+    /// Compute the hash of the mint data using CBOR like Java
     pub fn hash(&self) -> Result<DataHash> {
         use sha2::{Digest, Sha256};
+        use ciborium::Value;
+
+        // Create CBOR array with 8 elements matching Java's structure:
+        // [tokenId, tokenType, tokenDataHash, dataHash, coinData, recipient, salt, reason]
+        let cbor_array = vec![
+            // 1. tokenId as bytes
+            Value::Bytes(self.token_id.as_bytes().to_vec()),
+
+            // 2. tokenType as bytes
+            Value::Bytes(self.token_type.as_bytes().to_vec()),
+
+            // 3. tokenDataHash - hash of data if present, otherwise null
+            if let Some(ref data) = self.data {
+                let mut data_hasher = Sha256::new();
+                data_hasher.update(data);
+                let hash = DataHash::sha256(data_hasher.finalize().to_vec());
+                Value::Bytes(hash.imprint())
+            } else {
+                Value::Null
+            },
+
+            // 4. dataHash - null for now (would be external data hash)
+            Value::Null,
+
+            // 5. coinData - null for now (fungible tokens)
+            Value::Null,
+
+            // 6. recipient address - derive from target state
+            // In Java, this is recipient.getAddress() which is a hex string
+            // For now, use the hash of the target state as the address
+            Value::Text(hex::encode(self.target_state.hash()?.imprint())),
+
+            // 7. salt as bytes
+            if let Some(ref salt) = self.salt {
+                Value::Bytes(salt.clone())
+            } else {
+                Value::Null
+            },
+
+            // 8. reason - split mint reason if present
+            if let Some(ref reason) = self.split_mint_reason {
+                Value::Bytes(reason.hash()?.imprint())
+            } else {
+                Value::Null
+            },
+        ];
+
+        // Serialize the CBOR array
+        let mut cbor_bytes = Vec::new();
+        ciborium::into_writer(&Value::Array(cbor_array), &mut cbor_bytes)
+            .map_err(|e| SdkError::Serialization(format!("CBOR serialization failed: {}", e)))?;
+
+        // Hash the CBOR bytes
         let mut hasher = Sha256::new();
-
-        // Hash token type
-        hasher.update(self.token_type.as_bytes());
-
-        // Hash target state
-        hasher.update(&self.target_state.hash()?.imprint());
-
-        // Hash optional data
-        if let Some(ref data) = self.data {
-            hasher.update(&[1u8]);
-            hasher.update(data);
-        } else {
-            hasher.update(&[0u8]);
-        }
-
-        // Hash split mint reason if present
-        if let Some(ref reason) = self.split_mint_reason {
-            hasher.update(&[1u8]);
-            hasher.update(&reason.hash()?.imprint());
-        } else {
-            hasher.update(&[0u8]);
-        }
-
+        hasher.update(&cbor_bytes);
         Ok(DataHash::sha256(hasher.finalize().to_vec()))
     }
 }
@@ -314,10 +352,13 @@ mod tests {
         let predicate = UnmaskedPredicate::new(public_key);
         let state = TokenState::from_predicate(&predicate, None).unwrap();
 
+        let token_id = TokenId::new([1u8; 32]);
         let mint_data = MintTransactionData::new(
+            token_id,
             TokenType::new(vec![1, 2, 3]),
             state,
             Some(vec![4, 5, 6]),
+            Some(vec![7, 8, 9]),
             None,
         );
 
