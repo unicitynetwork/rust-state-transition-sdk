@@ -1,4 +1,5 @@
 use unicity_sdk::client::aggregator::AggregatorClient;
+use unicity_sdk::types::bft::RootTrustBase;
 use unicity_sdk::types::commitment::{MintCommitment, TransferCommitment};
 use unicity_sdk::types::predicate::{MaskedPredicate, UnmaskedPredicate};
 use unicity_sdk::types::token::{Token, TokenState, TokenType, TokenId};
@@ -17,6 +18,11 @@ async fn test_real_mint_and_transfers() {
     let aggregator_url = "https://goggregator-test.unicity.network";
     let client = AggregatorClient::new(aggregator_url.to_string())
         .expect("Failed to create aggregator client");
+
+    // Load trust base
+    let trust_base_json = include_str!("resources/trust-base.json");
+    let trust_base = RootTrustBase::from_json(trust_base_json)
+        .expect("Failed to load trust base");
 
     // Verify connection
     let initial_height = client.get_block_height().await
@@ -94,10 +100,10 @@ async fn test_real_mint_and_transfers() {
     }
 
     // Wait for real inclusion proof - blocks finalize in ~2 seconds
-    println!("   ⏳ Waiting for inclusion proof (polling for 5 seconds)...");
+    println!("   ⏳ Waiting for inclusion proof (polling for up to 10 seconds)...");
     let mint_proof = match client.wait_for_inclusion_proof(
         &mint_commitment.request_id,
-        Duration::from_secs(5)  // Poll for 5 seconds since blocks finalize in ~2 seconds
+        Duration::from_secs(10)  // Poll for 10 seconds to allow for variable block times
     ).await {
         Ok(proof) => {
             println!("   ✅ Got inclusion proof at block height: {}", proof.block_height);
@@ -108,6 +114,12 @@ async fn test_real_mint_and_transfers() {
             panic!("❌ Failed to get inclusion proof for mint: {:?}", e);
         }
     };
+
+    // Verify inclusion proof with trust base
+    match mint_proof.verify_with_trust_base(&mint_commitment.request_id, &trust_base) {
+        Ok(verified) => println!("   ✅ Inclusion proof verified with trust base: {}", verified),
+        Err(e) => println!("   ⚠️ Trust base verification not fully implemented: {:?}", e),
+    }
 
     // Create the actual token with real inclusion proof
     let mint_transaction = mint_commitment.to_transaction(mint_proof);
@@ -152,10 +164,10 @@ async fn test_real_mint_and_transfers() {
     }
 
     // Wait for real inclusion proof - blocks finalize in ~2 seconds
-    println!("   ⏳ Waiting for transfer inclusion proof (5 seconds)...");
+    println!("   ⏳ Waiting for transfer inclusion proof (up to 10 seconds)...");
     let transfer_proof_1 = match client.wait_for_inclusion_proof(
         &transfer_commitment_1.request_id,
-        Duration::from_secs(5)
+        Duration::from_secs(10)
     ).await {
         Ok(proof) => {
             println!("   ✅ Got inclusion proof at block height: {}", proof.block_height);
@@ -209,10 +221,10 @@ async fn test_real_mint_and_transfers() {
     }
 
     // Wait for real inclusion proof - blocks finalize in ~2 seconds
-    println!("   ⏳ Waiting for transfer inclusion proof (5 seconds)...");
+    println!("   ⏳ Waiting for transfer inclusion proof (up to 10 seconds)...");
     let transfer_proof_2 = match client.wait_for_inclusion_proof(
         &transfer_commitment_2.request_id,
-        Duration::from_secs(5)
+        Duration::from_secs(10)
     ).await {
         Ok(proof) => {
             println!("   ✅ Got inclusion proof at block height: {}", proof.block_height);

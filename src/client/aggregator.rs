@@ -48,14 +48,23 @@ pub struct SubmitCommitmentResponse {
     pub message: Option<String>,
 }
 
-/// Get inclusion proof response - matches actual aggregator response
+/// Inclusion proof response wrapper
 #[derive(Debug, Deserialize)]
 pub struct GetInclusionProofResponse {
+    #[serde(rename = "inclusionProof")]
+    pub inclusion_proof: Option<InclusionProofDto>,
+}
+
+/// Inclusion proof data
+#[derive(Debug, Deserialize)]
+pub struct InclusionProofDto {
     #[serde(rename = "merkleTreePath")]
-    pub merkle_tree_path: Option<MerkleTreePathDto>,
+    pub merkle_tree_path: MerkleTreePathDto,
     pub authenticator: Option<serde_json::Value>, // Can be null
     #[serde(rename = "transactionHash")]
     pub transaction_hash: Option<String>, // Can be null
+    #[serde(rename = "unicityCertificate")]
+    pub unicity_certificate: Option<String>, // Certificate data
 }
 
 /// Merkle tree path DTO
@@ -73,51 +82,6 @@ pub struct MerkleStepDto {
     pub sibling: Vec<String>,
 }
 
-/// Inclusion proof DTO
-#[derive(Debug, Deserialize)]
-pub struct InclusionProofDto {
-    #[serde(rename = "blockHeight")]
-    pub block_height: u64,
-    pub path: Vec<PathElementDto>,
-    pub root: String,
-}
-
-/// Path element DTO
-#[derive(Debug, Deserialize)]
-pub struct PathElementDto {
-    pub direction: String,
-    pub hash: String,
-}
-
-impl InclusionProofDto {
-    /// Convert to domain model
-    pub fn to_domain(&self) -> Result<InclusionProof> {
-        use crate::types::transaction::{PathDirection, PathElement};
-
-        let mut path = Vec::new();
-        for element in &self.path {
-            let direction = match element.direction.as_str() {
-                "left" => PathDirection::Left,
-                "right" => PathDirection::Right,
-                _ => {
-                    return Err(SdkError::InvalidParameter(format!(
-                        "Invalid path direction: {}",
-                        element.direction
-                    )))
-                }
-            };
-
-            let hash_bytes = hex::decode(&element.hash)?;
-            let hash = DataHash::from_imprint(&hash_bytes)?;
-            path.push(PathElement::new(direction, hash));
-        }
-
-        let root_bytes = hex::decode(&self.root)?;
-        let root = DataHash::from_imprint(&root_bytes)?;
-
-        Ok(InclusionProof::new(self.block_height, path, root))
-    }
-}
 
 /// Block height response
 #[derive(Debug, Deserialize)]
@@ -211,11 +175,13 @@ impl AggregatorClient {
             .transport
             .send_request("get_inclusion_proof", params)
             .await?;
+
         let proof_response: GetInclusionProofResponse =
             serde_json::from_value(response).map_err(|e| SdkError::Json(e))?;
 
-        // Convert the merkle tree path response to an inclusion proof
-        if let Some(merkle_path) = proof_response.merkle_tree_path {
+        // Convert the inclusion proof response to our domain model
+        if let Some(inclusion_proof_dto) = proof_response.inclusion_proof {
+            let merkle_path = inclusion_proof_dto.merkle_tree_path;
             // Parse the block height from the first step's path (contains block info)
             let block_height = if !merkle_path.steps.is_empty() {
                 // The path field in the first step contains block height info
@@ -249,7 +215,18 @@ impl AggregatorClient {
             let root_bytes = hex::decode(&merkle_path.root)?;
             let root = DataHash::from_imprint(&root_bytes)?;
 
-            Ok(Some(InclusionProof::new(block_height, path, root)))
+            // Parse certificate if present
+            let certificate = if let Some(cert_hex) = inclusion_proof_dto.unicity_certificate {
+                Some(hex::decode(cert_hex)?)
+            } else {
+                None
+            };
+
+            if let Some(cert) = certificate {
+                Ok(Some(InclusionProof::with_certificate(block_height, path, root, cert)))
+            } else {
+                Ok(Some(InclusionProof::new(block_height, path, root)))
+            }
         } else {
             Ok(None)
         }
@@ -272,6 +249,7 @@ impl AggregatorClient {
             match self.get_inclusion_proof(request_id).await {
                 Ok(Some(proof)) => return Ok(proof),
                 Ok(None) => {
+                    // No proof yet, continue polling
                     tokio::time::sleep(poll_interval).await;
                 }
                 Err(e) => {
@@ -358,25 +336,4 @@ mod tests {
         assert_eq!(dto.state_hash.len(), 68); // 34 bytes (2 algo + 32 hash) hex encoded
     }
 
-    #[test]
-    fn test_inclusion_proof_dto_conversion() {
-        let dto = InclusionProofDto {
-            block_height: 100,
-            path: vec![
-                PathElementDto {
-                    direction: "left".to_string(),
-                    hash: "0000".to_string() + &hex::encode(vec![1u8; 32]),
-                },
-                PathElementDto {
-                    direction: "right".to_string(),
-                    hash: "0000".to_string() + &hex::encode(vec![2u8; 32]),
-                },
-            ],
-            root: "0000".to_string() + &hex::encode(vec![3u8; 32]),
-        };
-
-        let proof = dto.to_domain().unwrap();
-        assert_eq!(proof.block_height, 100);
-        assert_eq!(proof.path.len(), 2);
-    }
 }

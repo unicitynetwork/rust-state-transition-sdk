@@ -17,7 +17,8 @@
 //! ```rust,no_run
 //! use unicity_sdk::client::StateTransitionClient;
 //! use unicity_sdk::crypto::KeyPair;
-//! use unicity_sdk::types::{TokenType, TokenState, MintTransactionData};
+//! use unicity_sdk::types::token::{TokenType, TokenState, TokenId};
+//! use unicity_sdk::types::transaction::MintTransactionData;
 //! use unicity_sdk::types::predicate::UnmaskedPredicate;
 //!
 //! #[tokio::main]
@@ -34,16 +35,18 @@
 //!     let predicate = UnmaskedPredicate::new(key_pair.public_key().clone());
 //!     let state = TokenState::from_predicate(&predicate, None)?;
 //!
-//!     // Create mint data
+//!     // Create mint data with unique token ID
 //!     let mint_data = MintTransactionData::new(
+//!         TokenId::unique(),  // Generate unique token ID
 //!         TokenType::new(b"TEST".to_vec()),
 //!         state,
-//!         None,
-//!         None,
+//!         None,  // Token data
+//!         Some(vec![1, 2, 3, 4, 5]),  // Salt
+//!         None,  // Reason
 //!     );
 //!
-//!     // Mint token
-//!     let token = client.mint_token(mint_data, key_pair.secret_key()).await?;
+//!     // Mint token (uses universal minter internally)
+//!     let token = client.mint_token(mint_data).await?;
 //!
 //!     Ok(())
 //! }

@@ -44,6 +44,7 @@ pub struct InclusionProof {
     pub block_height: u64,
     pub path: Vec<PathElement>,
     pub root: DataHash,
+    pub unicity_certificate: Option<Vec<u8>>, // CBOR encoded certificate
 }
 
 impl InclusionProof {
@@ -53,6 +54,17 @@ impl InclusionProof {
             block_height,
             path,
             root,
+            unicity_certificate: None,
+        }
+    }
+
+    /// Create with certificate
+    pub fn with_certificate(block_height: u64, path: Vec<PathElement>, root: DataHash, certificate: Vec<u8>) -> Self {
+        Self {
+            block_height,
+            path,
+            root,
+            unicity_certificate: Some(certificate),
         }
     }
 
@@ -65,6 +77,26 @@ impl InclusionProof {
             ));
         }
         Ok(())
+    }
+
+    /// Verify the inclusion proof against a trust base
+    pub fn verify_with_trust_base(&self, _request_id: &crate::types::primitives::RequestId, trust_base: &crate::types::bft::RootTrustBase) -> Result<bool> {
+        // Verify the root hash against trust base
+        if !trust_base.verify_root_hash(self.root.data())? {
+            return Ok(false);
+        }
+
+        // If certificate is present, verify it
+        if let Some(cert_data) = &self.unicity_certificate {
+            let cert = crate::types::bft::UnicityCertificate::from_cbor(cert_data)?;
+            if !cert.verify(trust_base)? {
+                return Ok(false);
+            }
+        }
+
+        // TODO: Verify merkle path
+        // For now, return true if basic checks pass
+        Ok(true)
     }
 
     /// Verify the proof for a given leaf

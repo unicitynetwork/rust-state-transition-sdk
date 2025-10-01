@@ -55,6 +55,9 @@ pub enum SdkError {
 
     #[error("HTTP request error: {0}")]
     Http(#[from] reqwest::Error),
+
+    #[error("Not implemented: {0}")]
+    NotImplemented(String),
 }
 
 pub type Result<T> = std::result::Result<T, SdkError>;

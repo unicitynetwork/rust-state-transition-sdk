@@ -1,4 +1,5 @@
 pub mod address;
+pub mod bft;
 pub mod commitment;
 pub mod predicate;
 pub mod primitives;
@@ -7,6 +8,7 @@ pub mod transaction;
 
 // Re-export commonly used types
 pub use address::{AddressScheme, DirectAddress, GenericAddress, ProxyAddress, ResolvedAddress};
+pub use bft::{RootTrustBase, UnicityCertificate};
 pub use commitment::{
     Authenticator, Commitment, CommitmentType, MintCommitment, TransferCommitment,
 };
