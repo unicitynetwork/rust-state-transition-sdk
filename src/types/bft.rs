@@ -407,9 +407,9 @@ impl UnicityCertificate {
         for (node_id, signature) in &self.unicity_seal.signatures {
             // Find the node in trust base
             if let Some(node) = trust_base.root_nodes.iter().find(|n| &n.node_id == node_id) {
-                // Verify signature (remove recovery byte if present)
+                // Remove the last byte (recovery ID) from 65-byte signature
                 let sig_bytes = if signature.len() == 65 {
-                    &signature[..64]
+                    &signature[..signature.len() - 1]
                 } else {
                     signature
                 };
@@ -436,7 +436,7 @@ impl UnicityCertificate {
     fn compute_seal_hash(&self) -> Result<Vec<u8>> {
         use ciborium::Value;
 
-        // Create seal without signatures for hashing
+        // Create seal array without signatures (signatures = null in CBOR)
         let seal_array = vec![
             Value::Integer(self.unicity_seal.version.into()),
             Value::Integer(self.unicity_seal.network_id.into()),
@@ -447,13 +447,18 @@ impl UnicityCertificate {
                 .map(|h| Value::Bytes(h.clone()))
                 .unwrap_or(Value::Null),
             Value::Bytes(self.unicity_seal.hash.clone()),
+            Value::Null, // signatures field set to null
         ];
 
+        // Tag the array with CBOR tag 1001 (UnicitySeal)
+        let tagged_seal = Value::Tag(1001, Box::new(Value::Array(seal_array)));
+
+        // Encode to CBOR
         let mut cbor_bytes = Vec::new();
-        ciborium::into_writer(&Value::Array(seal_array), &mut cbor_bytes)
+        ciborium::into_writer(&tagged_seal, &mut cbor_bytes)
             .map_err(|e| SdkError::Cbor(format!("Failed to encode seal for hashing: {}", e)))?;
 
-        // Return just the hash bytes without the algorithm prefix
+        // Hash the CBOR bytes with SHA256
         Ok(sha256(&cbor_bytes).data().to_vec())
     }
 
@@ -470,11 +475,11 @@ impl UnicityCertificate {
         let message = Message::from_digest(hash.try_into()
             .map_err(|_| SdkError::Crypto("Hash must be exactly 32 bytes".into()))?);
 
-        // Parse signature
+        // Parse signature in compact format (r||s)
         let sig = Signature::from_compact(signature)
             .map_err(|e| SdkError::Crypto(format!("Invalid signature: {}", e)))?;
 
-        // Verify
+        // Verify the signature
         Ok(secp.verify_ecdsa(message, &sig, &pk).is_ok())
     }
 }
