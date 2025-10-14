@@ -86,12 +86,9 @@ impl Address for ProxyAddress {
 }
 
 /// Generic address wrapper that can be either Direct or Proxy
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(tag = "scheme")]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum GenericAddress {
-    #[serde(rename = "DIRECT")]
     Direct(DirectAddress),
-    #[serde(rename = "PROXY")]
     Proxy(ProxyAddress),
 }
 
@@ -129,11 +126,71 @@ impl GenericAddress {
             Self::Proxy(addr) => addr,
         }
     }
+
+    /// Get the address string in Java SDK format: "SCHEME://HASH_HEX"
+    /// This matches Java SDK's getAddress() method and is used for CBOR serialization
+    pub fn get_address(&self) -> String {
+        let scheme = match self {
+            Self::Direct(_) => "DIRECT",
+            Self::Proxy(_) => "PROXY",
+        };
+        let hash_hex = hex::encode(self.hash().imprint());
+        format!("{}://{}", scheme, hash_hex)
+    }
 }
 
 impl fmt::Display for GenericAddress {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:?}:{}", self.scheme(), self.hash())
+    }
+}
+
+impl Serialize for GenericAddress {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        // Java SDK format: "SCHEME://HASH_HEX"
+        let scheme = match self {
+            Self::Direct(_) => "DIRECT",
+            Self::Proxy(_) => "PROXY",
+        };
+        let hash_hex = hex::encode(self.hash().imprint());
+        let address_string = format!("{}://{}", scheme, hash_hex);
+        serializer.serialize_str(&address_string)
+    }
+}
+
+impl<'de> Deserialize<'de> for GenericAddress {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        // Parse Java SDK format: "SCHEME://HASH_HEX"
+        let address_string = String::deserialize(deserializer)?;
+
+        let parts: Vec<&str> = address_string.split("://").collect();
+        if parts.len() != 2 {
+            return Err(serde::de::Error::custom(format!(
+                "Invalid address format: expected SCHEME://HASH, got {}",
+                address_string
+            )));
+        }
+
+        let scheme = parts[0];
+        let hash_hex = parts[1];
+
+        let hash_bytes = hex::decode(hash_hex).map_err(serde::de::Error::custom)?;
+        let hash = DataHash::from_imprint(&hash_bytes).map_err(serde::de::Error::custom)?;
+
+        match scheme {
+            "DIRECT" => Ok(Self::Direct(DirectAddress::new(hash))),
+            "PROXY" => Ok(Self::Proxy(ProxyAddress::new(hash))),
+            _ => Err(serde::de::Error::custom(format!(
+                "Invalid address scheme: expected DIRECT or PROXY, got {}",
+                scheme
+            ))),
+        }
     }
 }
 
@@ -183,7 +240,9 @@ mod tests {
         let address = GenericAddress::direct(hash.clone());
 
         let json = serde_json::to_string(&address).unwrap();
-        assert!(json.contains("\"scheme\":\"DIRECT\""));
+        // Java SDK format: "DIRECT://HASH_HEX"
+        assert!(json.contains("DIRECT://"));
+        assert!(json.contains(&hex::encode(hash.imprint())));
 
         let deserialized: GenericAddress = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized, address);

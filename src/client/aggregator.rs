@@ -2,7 +2,7 @@ use crate::client::jsonrpc::JsonRpcHttpTransport;
 use crate::error::{Result, SdkError};
 use crate::types::commitment::{Authenticator, Commitment};
 use crate::types::primitives::{DataHash, RequestId};
-use crate::types::transaction::{InclusionProof, PathDirection, PathElement};
+use crate::types::transaction::InclusionProof;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::time::Duration;
@@ -44,14 +44,40 @@ impl From<&Authenticator> for AuthenticatorDto {
 #[derive(Debug, Deserialize)]
 pub struct SubmitCommitmentResponse {
     pub status: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub details: Option<serde_json::Value>,
+}
+
+impl SubmitCommitmentResponse {
+    /// Check if the response indicates success
+    pub fn is_success(&self) -> bool {
+        let status_lower = self.status.to_lowercase();
+        status_lower == "success" || status_lower == "accepted"
+    }
+
+    /// Get a descriptive error message
+    pub fn error_message(&self) -> String {
+        if let Some(err) = &self.error {
+            return err.clone();
+        }
+        if let Some(msg) = &self.message {
+            return msg.clone();
+        }
+        if let Some(details) = &self.details {
+            return format!("Status: {}, Details: {}", self.status, details);
+        }
+        format!("Status: {}", self.status)
+    }
 }
 
 /// Inclusion proof response wrapper
 #[derive(Debug, Deserialize)]
 pub struct GetInclusionProofResponse {
-    #[serde(rename = "inclusionProof")]
+    #[serde(default, rename = "inclusionProof")]
     pub inclusion_proof: Option<InclusionProofDto>,
 }
 
@@ -60,10 +86,11 @@ pub struct GetInclusionProofResponse {
 pub struct InclusionProofDto {
     #[serde(rename = "merkleTreePath")]
     pub merkle_tree_path: MerkleTreePathDto,
+    #[serde(default)]
     pub authenticator: Option<serde_json::Value>, // Can be null
-    #[serde(rename = "transactionHash")]
+    #[serde(default, rename = "transactionHash")]
     pub transaction_hash: Option<String>, // Can be null
-    #[serde(rename = "unicityCertificate")]
+    #[serde(default, rename = "unicityCertificate")]
     pub unicity_certificate: Option<String>, // Certificate data
 }
 
@@ -128,7 +155,16 @@ impl AggregatorClient {
         // Debug: Print raw response
         tracing::debug!("Raw response from aggregator: {:?}", response);
 
-        serde_json::from_value(response).map_err(|e| SdkError::Json(e))
+        let parsed: SubmitCommitmentResponse = serde_json::from_value(response).map_err(|e| SdkError::Json(e))?;
+
+        tracing::info!(
+            "Commitment submission result: status={}, message={:?}, error={:?}",
+            parsed.status,
+            parsed.message,
+            parsed.error
+        );
+
+        Ok(parsed)
     }
 
     /// Submit raw commitment
@@ -157,7 +193,16 @@ impl AggregatorClient {
         // Debug: Print raw response
         tracing::debug!("Raw response from aggregator: {:?}", response);
 
-        serde_json::from_value(response).map_err(|e| SdkError::Json(e))
+        let parsed: SubmitCommitmentResponse = serde_json::from_value(response).map_err(|e| SdkError::Json(e))?;
+
+        tracing::info!(
+            "Commitment submission result: status={}, message={:?}, error={:?}",
+            parsed.status,
+            parsed.message,
+            parsed.error
+        );
+
+        Ok(parsed)
     }
 
     /// Get inclusion proof for a request
@@ -181,39 +226,22 @@ impl AggregatorClient {
 
         // Convert the inclusion proof response to our domain model
         if let Some(inclusion_proof_dto) = proof_response.inclusion_proof {
-            let merkle_path = inclusion_proof_dto.merkle_tree_path;
-            // Parse the block height from the first step's path (contains block info)
-            let block_height = if !merkle_path.steps.is_empty() {
-                // The path field in the first step contains block height info
-                // For now, use a placeholder - we may need to parse this from the path
-                1u64 // TODO: Extract actual block height from path or add to response
-            } else {
-                0u64
+            use crate::types::transaction::{MerkleTreePath, MerkleTreePathStep};
+
+            // Convert MerkleTreePathDto to MerkleTreePath
+            let steps: Vec<MerkleTreePathStep> = inclusion_proof_dto.merkle_tree_path.steps
+                .into_iter()
+                .map(|step| MerkleTreePathStep {
+                    path: serde_json::Value::String(step.path),
+                    sibling: step.sibling,
+                    branch: step.branch.into_iter().map(Some).collect(),
+                })
+                .collect();
+
+            let merkle_tree_path = MerkleTreePath {
+                root: inclusion_proof_dto.merkle_tree_path.root,
+                steps,
             };
-
-            // Convert steps to path elements
-            let mut path = Vec::new();
-            for step in merkle_path.steps {
-                // Each step has branch, path, and sibling
-                // The sibling contains the hash we need for proof verification
-                if !step.sibling.is_empty() {
-                    // Determine direction based on branch value
-                    let direction = if step.branch.is_empty() || step.branch[0] == "0" {
-                        PathDirection::Left
-                    } else {
-                        PathDirection::Right
-                    };
-
-                    // Use the first sibling hash
-                    let hash_bytes = hex::decode(&step.sibling[0])?;
-                    let hash = DataHash::from_imprint(&hash_bytes)?;
-                    path.push(PathElement::new(direction, hash));
-                }
-            }
-
-            // Parse root
-            let root_bytes = hex::decode(&merkle_path.root)?;
-            let root = DataHash::from_imprint(&root_bytes)?;
 
             // Parse certificate if present
             let certificate = if let Some(cert_hex) = inclusion_proof_dto.unicity_certificate {
@@ -223,9 +251,9 @@ impl AggregatorClient {
             };
 
             if let Some(cert) = certificate {
-                Ok(Some(InclusionProof::with_certificate(block_height, path, root, cert)))
+                Ok(Some(InclusionProof::with_certificate(merkle_tree_path, cert)))
             } else {
-                Ok(Some(InclusionProof::new(block_height, path, root)))
+                Ok(Some(InclusionProof::new(merkle_tree_path)))
             }
         } else {
             Ok(None)

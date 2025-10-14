@@ -2,17 +2,7 @@
 
 [![CI](https://github.com/unicitynetwork/rust-state-transition-sdk/workflows/CI/badge.svg)](https://github.com/unicitynetwork/rust-state-transition-sdk/actions/workflows/ci.yml)
 
-A comprehensive Rust implementation of the Unicity Protocol for creating and managing off-chain token state transitions with on-chain commitments.
-
-## Features
-
-- 🔐 **Cryptographic Operations**: secp256k1 ECDSA signatures with recovery
-- 🌳 **Sparse Merkle Trees**: Standard and sum tree implementations for inclusion proofs
-- 🪙 **Token Management**: Mint, transfer, and split token operations
-- 🔒 **Predicate System**: Flexible ownership control with masked/unmasked predicates
-- 🌐 **JSON-RPC Client**: Async aggregator communication
-- 📦 **Serialization**: CBOR and JSON support for all data types
-- ⚡ **High Performance**: Zero-copy deserialization and efficient async operations
+A Rust implementation of the Unicity Protocol for creating and managing off-chain token state transitions with on-chain commitments.
 
 ## Installation
 
@@ -31,8 +21,10 @@ tokio = { version = "1.45", features = ["full"] }
 ```rust
 use unicity_sdk::client::StateTransitionClient;
 use unicity_sdk::crypto::KeyPair;
-use unicity_sdk::types::{TokenType, TokenState, MintTransactionData};
+use unicity_sdk::types::token::{TokenType, TokenState, TokenId};
+use unicity_sdk::types::transaction::MintTransactionData;
 use unicity_sdk::types::predicate::UnmaskedPredicate;
+use unicity_sdk::types::GenericAddress;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -51,16 +43,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let predicate = UnmaskedPredicate::new(key_pair.public_key().clone());
     let state = TokenState::from_predicate(&predicate, None)?;
 
-    // Create mint data
+    // Create recipient address from state (predicate hash only, not including data)
+    let address_hash = state.address_hash()?;
+    let recipient = GenericAddress::direct(address_hash);
+
+    // Create mint data with unique token ID
+    let token_id = TokenId::unique();
     let mint_data = MintTransactionData::new(
+        token_id,
         TokenType::new(b"MY_TOKEN".to_vec()),
-        state,
-        Some(b"Initial token data".to_vec()),
-        None,
+        Some(b"Initial token data".to_vec()), // token_data
+        None,                                   // coin_data
+        recipient,                              // recipient address
+        vec![1, 2, 3, 4, 5],                   // salt
+        None,                                   // recipient_data_hash
+        None,                                   // split reason
     );
 
-    // Mint the token
-    let token = client.mint_token(mint_data, key_pair.secret_key()).await?;
+    // Mint the token (uses universal minter)
+    let token = client.mint_token(mint_data, state).await?;
     println!("Minted token with ID: {:?}", token.id()?);
 
     Ok(())
@@ -71,12 +72,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ```rust
 use unicity_sdk::client::StateTransitionClient;
-use unicity_sdk::crypto::{KeyPair, TestIdentity};
-use unicity_sdk::types::{TokenState};
+use unicity_sdk::crypto::TestIdentity;
+use unicity_sdk::types::token::TokenState;
 use unicity_sdk::types::predicate::UnmaskedPredicate;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    unicity_sdk::init();
+
     let client = StateTransitionClient::new(
         "https://goggregator-test.unicity.network".to_string()
     )?;
@@ -86,7 +89,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let bob = TestIdentity::bob()?;
 
     // Assume alice has a token (minted previously)
-    let alice_token = /* ... obtain alice's token ... */;
+    // let alice_token = ...;
 
     // Create Bob's receiving state
     let bob_predicate = UnmaskedPredicate::new(bob.key_pair.public_key().clone());
@@ -128,7 +131,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 ### Working with Predicates
 
 ```rust
-use unicity_sdk::types::predicate::{UnmaskedPredicate, MaskedPredicate};
+use unicity_sdk::types::predicate::{UnmaskedPredicate, MaskedPredicate, BurnPredicate};
+use unicity_sdk::types::token::TokenState;
 use unicity_sdk::crypto::KeyPair;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -136,17 +140,98 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Unmasked predicate (public key visible)
     let unmasked = UnmaskedPredicate::new(key_pair.public_key().clone());
+    let state1 = TokenState::from_predicate(&unmasked, None)?;
 
-    // Masked predicate (public key hidden with nonce)
+    // Masked predicate (public key hidden with nonce for privacy)
     let nonce = b"secret_nonce_12345";
     let masked = MaskedPredicate::from_public_key_and_nonce(
         key_pair.public_key(),
         nonce
     );
+    let state2 = TokenState::from_predicate(&masked, None)?;
+
+    // Burn predicate (allows unconditional spending, used for token splitting)
+    let burn = BurnPredicate::new();
+    let state3 = TokenState::from_predicate(&burn, None)?;
 
     Ok(())
 }
 ```
+
+### Privacy-Preserving Transfers with MaskedPredicate
+
+MaskedPredicate enables privacy-preserving token transfers where the recipient's public key remains hidden until they spend the token. This follows a two-step protocol:
+
+```rust
+use unicity_sdk::client::StateTransitionClient;
+use unicity_sdk::crypto::{TestIdentity, KeyPair};
+use unicity_sdk::types::token::{TokenState, TokenType, TokenId};
+use unicity_sdk::types::transaction::{MintTransactionData, TransferTransactionData};
+use unicity_sdk::types::predicate::{UnmaskedPredicate, MaskedPredicate};
+use unicity_sdk::types::GenericAddress;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    unicity_sdk::init();
+
+    let client = StateTransitionClient::new(
+        "https://goggregator-test.unicity.network".to_string()
+    )?;
+
+    let alice = TestIdentity::alice()?;
+    let bob = TestIdentity::bob()?;
+
+    // STEP 1: Bob generates nonce and shares (nonce, public_key) with Alice off-chain
+    let nonce = b"bobs_secret_nonce_123";
+
+    // STEP 2: Alice creates token with MaskedPredicate for Bob
+    let masked_predicate = MaskedPredicate::from_public_key_and_nonce(
+        bob.key_pair.public_key(),
+        nonce
+    );
+    let masked_state = TokenState::from_predicate(&masked_predicate, None)?;
+    let address_hash = masked_state.address_hash()?;
+    let recipient = GenericAddress::direct(address_hash);
+
+    // Alice mints token to Bob's masked address (Bob's public key is hidden)
+    let token_id = TokenId::unique();
+    let mint_data = MintTransactionData::new(
+        token_id,
+        TokenType::new(b"PRIVATE_TOKEN".to_vec()),
+        None,
+        None,
+        recipient,
+        vec![1, 2, 3],
+        None,
+        None,
+    );
+    let masked_token = client.mint_token(mint_data, masked_state.clone()).await?;
+
+    // STEP 3: Bob spends the token by revealing the nonce
+    // Bob creates transfer with nonce_revelation
+    let carol_predicate = UnmaskedPredicate::new(KeyPair::generate()?.public_key().clone());
+    let carol_state = TokenState::from_predicate(&carol_predicate, None)?;
+    let carol_address = GenericAddress::direct(carol_state.address_hash()?);
+
+    // When Bob creates the transfer, the nonce must be included for verification
+    let transfer_data = TransferTransactionData::with_nonce_revelation(
+        masked_state.clone(),
+        carol_address,
+        vec![4, 5, 6],
+        None,
+        None,
+        vec![],
+        nonce.to_vec(), // Nonce revelation proves Bob can spend
+    );
+
+    println!("Privacy-preserving transfer completed!");
+    println!("- Alice sent to masked address (Bob's identity hidden)");
+    println!("- Bob spent by revealing nonce (proves ownership)");
+
+    Ok(())
+}
+```
+
 
 ### Sparse Merkle Tree Operations
 
@@ -320,18 +405,19 @@ unicity-sdk/
 ### Transactions
 - `Transaction<T>` - Transaction with inclusion proof
 - `MintTransactionData` - Token creation data
-- `TransferTransactionData` - Token transfer data
-- `InclusionProof` - Merkle tree inclusion proof
+- `TransferTransactionData` - Token transfer data with optional nonce revelation
+- `InclusionProof` - Merkle tree inclusion proof with unicity certificate
 
 ### Commitments
 - `MintCommitment` - Commitment for token minting
 - `TransferCommitment` - Commitment for token transfer
-- `Authenticator` - Signature with public key
+- `Authenticator` - Signature with public key recovery
 
 ### Predicates
-- `UnmaskedPredicate` - Direct public key ownership
-- `MaskedPredicate` - Nonce-masked ownership
-- `BurnPredicate` - Burn condition for splitting
+- `UnmaskedPredicate` - Direct public key ownership (public)
+- `MaskedPredicate` - Nonce-masked ownership (private until spend)
+- `BurnPredicate` - Burn condition for token splitting
+- `Predicate::verify()` - Full predicate verification with nonce support
 
 ### Cryptography
 - `KeyPair` - Secret/public key pair
@@ -384,7 +470,7 @@ MIT OR Apache-2.0
 
 For issues and questions:
 - GitHub Issues: [github.com/unicitynetwork/rust-state-transition-sdk](https://github.com/unicitynetwork/rust-state-transition-sdk)
-- Documentation: [docs.unicity.network](https://docs.unicity.network)
+
 
 ## Acknowledgments
 

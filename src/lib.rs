@@ -35,18 +35,24 @@
 //!     let predicate = UnmaskedPredicate::new(key_pair.public_key().clone());
 //!     let state = TokenState::from_predicate(&predicate, None)?;
 //!
+//!     // Create recipient address from state (predicate hash only, not including data)
+//!     let address_hash = state.address_hash()?;
+//!     let recipient = unicity_sdk::types::address::GenericAddress::direct(address_hash);
+//!
 //!     // Create mint data with unique token ID
 //!     let mint_data = MintTransactionData::new(
 //!         TokenId::unique(),  // Generate unique token ID
 //!         TokenType::new(b"TEST".to_vec()),
-//!         state,
-//!         None,  // Token data
-//!         Some(vec![1, 2, 3, 4, 5]),  // Salt
-//!         None,  // Reason
+//!         None,  // token_data
+//!         None,  // coin_data
+//!         recipient,  // recipient address
+//!         vec![1, 2, 3, 4, 5],  // salt (5 bytes, not Option)
+//!         None,  // recipient_data_hash (None since state has no data)
+//!         None,  // reason
 //!     );
 //!
 //!     // Mint token (uses universal minter internally)
-//!     let token = client.mint_token(mint_data).await?;
+//!     let token = client.mint_token(mint_data, state).await?;
 //!
 //!     Ok(())
 //! }

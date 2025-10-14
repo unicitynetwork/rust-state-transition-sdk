@@ -71,14 +71,20 @@ async fn test_real_mint_and_transfers() {
         Some(b"Alice's token - initial mint".to_vec())
     ).unwrap();
 
+    // Create recipient address from alice state hash
+    let alice_state_hash = alice_state.hash().unwrap();
+    let alice_recipient = unicity_sdk::types::address::GenericAddress::direct(alice_state_hash);
+
     // Create mint transaction data
     let mint_data = MintTransactionData::new(
         token_id.clone(),
         token_type.clone(),
-        alice_state.clone(),
-        Some(b"E2E test token metadata".to_vec()),
-        Some(vec![0xAA, 0xBB, 0xCC, 0xDD, 0xEE]), // 5-byte salt
-        None, // No split mint reason
+        Some(b"E2E test token metadata".to_vec()),  // token_data
+        None,  // coin_data
+        alice_recipient,  // recipient address
+        vec![0xAA, 0xBB, 0xCC, 0xDD, 0xEE],  // 5-byte salt (not Option)
+        None,  // recipient_data_hash
+        None,  // reason (no split mint reason)
     );
 
     // Create mint commitment (uses universal minter internally)
@@ -106,8 +112,8 @@ async fn test_real_mint_and_transfers() {
         Duration::from_secs(10)  // Poll for 10 seconds to allow for variable block times
     ).await {
         Ok(proof) => {
-            println!("   ✅ Got inclusion proof at block height: {}", proof.block_height);
-            println!("      Merkle path length: {}", proof.path.len());
+            println!("   ✅ Got inclusion proof with root: {}", proof.merkle_tree_path.root);
+            println!("      Merkle path steps: {}", proof.merkle_tree_path.steps.len());
             proof
         }
         Err(e) => {
@@ -170,7 +176,7 @@ async fn test_real_mint_and_transfers() {
         Duration::from_secs(10)
     ).await {
         Ok(proof) => {
-            println!("   ✅ Got inclusion proof at block height: {}", proof.block_height);
+            println!("   ✅ Got inclusion proof with root: {}", proof.merkle_tree_path.root);
             proof
         }
         Err(e) => {
@@ -227,7 +233,7 @@ async fn test_real_mint_and_transfers() {
         Duration::from_secs(10)
     ).await {
         Ok(proof) => {
-            println!("   ✅ Got inclusion proof at block height: {}", proof.block_height);
+            println!("   ✅ Got inclusion proof with root: {}", proof.merkle_tree_path.root);
             proof
         }
         Err(e) => {

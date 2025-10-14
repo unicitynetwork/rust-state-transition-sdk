@@ -270,6 +270,11 @@ impl RequestId {
         Self(DataHash::sha256(hash))
     }
 
+    /// Create a RequestId directly from a DataHash
+    pub fn from_data_hash(hash: DataHash) -> Self {
+        Self(hash)
+    }
+
     /// Get the underlying DataHash
     pub fn as_data_hash(&self) -> &DataHash {
         &self.0

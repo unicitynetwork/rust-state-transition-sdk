@@ -35,6 +35,9 @@ pub enum SdkError {
     #[error("State transition error: {0}")]
     StateTransition(String),
 
+    #[error("Aggregator error: {status} - {message}")]
+    Aggregator { status: String, message: String },
+
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 

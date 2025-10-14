@@ -53,30 +53,42 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Bob's token (e.g., 100 BTC)
     let bob_token_id = TokenId::unique_with_marker(1);
+    let bob_state = TokenState::from_predicate(
+        &UnmaskedPredicate::new(bob.key_pair.public_key().clone()),
+        Some(b"100 BTC".to_vec()),
+    )?;
+    let bob_address_hash = bob_state.address_hash()?;
+    let bob_recipient = unicity_sdk::types::address::GenericAddress::direct(bob_address_hash);
+
     let bob_token_data = MintTransactionData::new(
         bob_token_id,
         TokenType::new(b"BTC".to_vec()),
-        TokenState::from_predicate(
-            &UnmaskedPredicate::new(bob.key_pair.public_key().clone()),
-            Some(b"100 BTC".to_vec()),
-        )?,
-        Some(b"Bob's Bitcoin".to_vec()),
-        Some(vec![1, 2, 3, 4, 5]),
-        None,
+        Some(b"Bob's Bitcoin".to_vec()),  // token_data
+        None,  // coin_data
+        bob_recipient,  // recipient address
+        vec![1, 2, 3, 4, 5],  // salt (not Option)
+        None,  // recipient_data_hash
+        None,  // reason
     );
 
     // Carol's token (e.g., 2000 ETH)
     let carol_token_id = TokenId::unique_with_marker(2);
+    let carol_state = TokenState::from_predicate(
+        &UnmaskedPredicate::new(carol.key_pair.public_key().clone()),
+        Some(b"2000 ETH".to_vec()),
+    )?;
+    let carol_address_hash = carol_state.address_hash()?;
+    let carol_recipient = unicity_sdk::types::address::GenericAddress::direct(carol_address_hash);
+
     let carol_token_data = MintTransactionData::new(
         carol_token_id,
         TokenType::new(b"ETH".to_vec()),
-        TokenState::from_predicate(
-            &UnmaskedPredicate::new(carol.key_pair.public_key().clone()),
-            Some(b"2000 ETH".to_vec()),
-        )?,
-        Some(b"Carol's Ethereum".to_vec()),
-        Some(vec![6, 7, 8, 9, 10]),
-        None,
+        Some(b"Carol's Ethereum".to_vec()),  // token_data
+        None,  // coin_data
+        carol_recipient,  // recipient address
+        vec![6, 7, 8, 9, 10],  // salt (not Option)
+        None,  // recipient_data_hash
+        None,  // reason
     );
 
     println!("  Bob's token: 100 BTC");

@@ -28,14 +28,20 @@ async fn test_basic_mint() {
     let predicate = UnmaskedPredicate::new(recipient_key.public_key().clone());
     let target_state = TokenState::from_predicate(&predicate, Some(b"test metadata".to_vec())).unwrap();
 
+    // Create recipient address from target state hash
+    let target_state_hash = target_state.hash().unwrap();
+    let recipient = unicity_sdk::types::address::GenericAddress::direct(target_state_hash);
+
     // Create mint data
     let mint_data = MintTransactionData::new(
         token_id.clone(),
         token_type,
-        target_state,
-        Some(b"token data".to_vec()),
-        Some(vec![1, 2, 3, 4, 5]), // 5-byte salt like Java tests
-        None,
+        Some(b"token data".to_vec()),  // token_data
+        None,  // coin_data
+        recipient,  // recipient address
+        vec![1, 2, 3, 4, 5],  // 5-byte salt like Java tests (not Option)
+        None,  // recipient_data_hash
+        None,  // reason
     );
 
     println!("📝 Token ID: {}", hex::encode(token_id.as_bytes()));
@@ -61,7 +67,7 @@ async fn test_basic_mint() {
                     std::time::Duration::from_secs(5)
                 ).await {
                     Ok(proof) => {
-                        println!("✅ Got inclusion proof at block {}", proof.block_height);
+                        println!("✅ Got inclusion proof with root: {}", proof.merkle_tree_path.root);
                         println!("🎉 MINT SUCCESSFUL!");
                     }
                     Err(e) => {

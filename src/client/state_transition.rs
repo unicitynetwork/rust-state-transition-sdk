@@ -38,6 +38,7 @@ impl StateTransitionClient {
     pub async fn mint_token(
         &self,
         mint_data: MintTransactionData,
+        initial_state: TokenState,
     ) -> Result<Token<MintTransactionData>> {
         // Create and sign commitment using universal minter
         let commitment = MintCommitment::create(mint_data.clone())?;
@@ -45,21 +46,31 @@ impl StateTransitionClient {
         // Submit commitment
         let response = self.aggregator.submit_commitment(&commitment).await?;
 
-        if response.status != "accepted" && response.status != "success" {
-            return Err(SdkError::StateTransition(format!(
-                "Commitment rejected: {:?}",
-                response.message
-            )));
+        if !response.is_success() {
+            return Err(SdkError::Aggregator {
+                status: response.status.clone(),
+                message: response.error_message(),
+            });
         }
 
         // Wait for inclusion proof
-        let proof =
+        let mut proof =
             InclusionProofUtils::wait_inclusion_proof(&self.aggregator, &commitment.request_id)
                 .await?;
 
+        // Enrich inclusion proof with authenticator and transaction hash from commitment
+        proof.authenticator = Some(crate::types::transaction::Authenticator::new(
+            commitment.authenticator.algorithm.clone(),
+            commitment.authenticator.public_key.as_bytes().to_vec(),
+            commitment.authenticator.signature.as_bytes().to_vec(),
+            commitment.authenticator.state_hash.clone(),
+        ));
+        proof.transaction_hash = Some(hex::encode(commitment.transaction_hash.imprint()));
+
         // Create token with transaction
         let transaction = commitment.to_transaction(proof);
-        let token = Token::new(mint_data.target_state.clone(), transaction);
+
+        let token = Token::new(initial_state, transaction);
 
         Ok(token)
     }
@@ -82,17 +93,26 @@ impl StateTransitionClient {
         // Submit commitment
         let response = self.aggregator.submit_commitment(&commitment).await?;
 
-        if response.status != "accepted" && response.status != "success" {
-            return Err(SdkError::StateTransition(format!(
-                "Commitment rejected: {:?}",
-                response.message
-            )));
+        if !response.is_success() {
+            return Err(SdkError::Aggregator {
+                status: response.status.clone(),
+                message: response.error_message(),
+            });
         }
 
         // Wait for inclusion proof
-        let proof =
+        let mut proof =
             InclusionProofUtils::wait_inclusion_proof(&self.aggregator, &commitment.request_id)
                 .await?;
+
+        // Enrich inclusion proof with authenticator and transaction hash from commitment
+        proof.authenticator = Some(crate::types::transaction::Authenticator::new(
+            commitment.authenticator.algorithm.clone(),
+            commitment.authenticator.public_key.as_bytes().to_vec(),
+            commitment.authenticator.signature.as_bytes().to_vec(),
+            commitment.authenticator.state_hash.clone(),
+        ));
+        proof.transaction_hash = Some(hex::encode(commitment.transaction_hash.imprint()));
 
         // Create updated token
         let transfer_tx = commitment.to_transaction(proof);
@@ -107,11 +127,11 @@ impl StateTransitionClient {
     pub async fn submit_mint_commitment(&self, commitment: &MintCommitment) -> Result<String> {
         let response = self.aggregator.submit_commitment(commitment).await?;
 
-        if response.status != "accepted" && response.status != "success" {
-            return Err(SdkError::StateTransition(format!(
-                "Commitment rejected: {:?}",
-                response.message
-            )));
+        if !response.is_success() {
+            return Err(SdkError::Aggregator {
+                status: response.status.clone(),
+                message: response.error_message(),
+            });
         }
 
         // Return the request ID from the commitment since response doesn't include it
@@ -125,11 +145,11 @@ impl StateTransitionClient {
     ) -> Result<String> {
         let response = self.aggregator.submit_commitment(commitment).await?;
 
-        if response.status != "accepted" && response.status != "success" {
-            return Err(SdkError::StateTransition(format!(
-                "Commitment rejected: {:?}",
-                response.message
-            )));
+        if !response.is_success() {
+            return Err(SdkError::Aggregator {
+                status: response.status.clone(),
+                message: response.error_message(),
+            });
         }
 
         // Return the request ID from the commitment since response doesn't include it
@@ -174,29 +194,44 @@ impl StateTransitionClient {
         rand::thread_rng().fill_bytes(&mut token_id_bytes);
         let token_id = TokenId::new(token_id_bytes);
 
+        // Create recipient address from target state (predicate hash only, not including data)
+        let address_hash = target_state.address_hash()?;
+        let recipient = crate::types::address::GenericAddress::direct(address_hash);
+
         let mint_data = MintTransactionData::new(
             token_id,
             TokenType::new(b"NAMETAG".to_vec()),
-            target_state,
-            Some(serde_json::to_vec(&nametag_data)?),
-            Some(vec![0u8; 5]), // Add salt for uniqueness
-            None,
+            Some(serde_json::to_vec(&nametag_data)?),  // token_data
+            None,  // coin_data
+            recipient,
+            vec![0u8; 5], // salt
+            None,  // recipient_data_hash
+            None,  // reason
         );
 
         let commitment = MintCommitment::create(mint_data.clone())?;
 
         let response = self.aggregator.submit_commitment(&commitment).await?;
 
-        if response.status != "accepted" && response.status != "success" {
-            return Err(SdkError::StateTransition(format!(
-                "Commitment rejected: {:?}",
-                response.message
-            )));
+        if !response.is_success() {
+            return Err(SdkError::Aggregator {
+                status: response.status.clone(),
+                message: response.error_message(),
+            });
         }
 
-        let proof =
+        let mut proof =
             InclusionProofUtils::wait_inclusion_proof(&self.aggregator, &commitment.request_id)
                 .await?;
+
+        // Enrich inclusion proof with authenticator and transaction hash from commitment
+        proof.authenticator = Some(crate::types::transaction::Authenticator::new(
+            commitment.authenticator.algorithm.clone(),
+            commitment.authenticator.public_key.as_bytes().to_vec(),
+            commitment.authenticator.signature.as_bytes().to_vec(),
+            commitment.authenticator.state_hash.clone(),
+        ));
+        proof.transaction_hash = Some(hex::encode(commitment.transaction_hash.imprint()));
 
         let transaction = Transaction::new(nametag_data.clone(), proof);
         let token = Token::new(nametag_data.target_state.clone(), transaction);
@@ -240,6 +275,7 @@ impl StateTransitionClient {
 pub struct TokenBuilder<'a> {
     client: &'a StateTransitionClient,
     mint_data: Option<MintTransactionData>,
+    initial_state: Option<TokenState>,
     signing_key: Option<SecretKey>,
 }
 
@@ -249,6 +285,7 @@ impl<'a> TokenBuilder<'a> {
         Self {
             client,
             mint_data: None,
+            initial_state: None,
             signing_key: None,
         }
     }
@@ -256,6 +293,12 @@ impl<'a> TokenBuilder<'a> {
     /// Set the mint data
     pub fn with_mint_data(mut self, mint_data: MintTransactionData) -> Self {
         self.mint_data = Some(mint_data);
+        self
+    }
+
+    /// Set the initial state
+    pub fn with_initial_state(mut self, state: TokenState) -> Self {
+        self.initial_state = Some(state);
         self
     }
 
@@ -271,8 +314,12 @@ impl<'a> TokenBuilder<'a> {
             .mint_data
             .ok_or_else(|| SdkError::InvalidParameter("Missing mint data".to_string()))?;
 
+        let initial_state = self
+            .initial_state
+            .ok_or_else(|| SdkError::InvalidParameter("Missing initial state".to_string()))?;
+
         // Signing key no longer needed - uses universal minter
-        self.client.mint_token(mint_data).await
+        self.client.mint_token(mint_data, initial_state).await
     }
 }
 
@@ -297,18 +344,26 @@ mod tests {
 
         let predicate = UnmaskedPredicate::new(key_pair.public_key().clone());
         let state = TokenState::from_predicate(&predicate, None).unwrap();
+
+        // Create recipient address from state (predicate hash only, not including data)
+        let address_hash = state.address_hash().unwrap();
+        let recipient = crate::types::address::GenericAddress::direct(address_hash);
+
         let token_id = TokenId::new([1u8; 32]);
         let mint_data = MintTransactionData::new(
             token_id,
             TokenType::new(vec![1, 2, 3]),
-            state,
-            None,
-            Some(vec![1, 2, 3, 4, 5]),
-            None,
+            None,  // token_data
+            None,  // coin_data
+            recipient,
+            vec![1, 2, 3, 4, 5],  // salt
+            None,  // recipient_data_hash
+            None,  // reason
         );
 
         let _builder = TokenBuilder::new(&client)
             .with_mint_data(mint_data)
+            .with_initial_state(state)
             .with_signing_key(key_pair.secret_key().clone());
 
         // Builder is ready (actual submission would require running aggregator)

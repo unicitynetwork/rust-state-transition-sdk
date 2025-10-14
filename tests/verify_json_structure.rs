@@ -17,13 +17,20 @@ fn test_json_serialization_matches_java() {
         TokenState::from_predicate(&predicate, None).expect("Failed to create state");
 
     let token_id = TokenId::unique();
+
+    // Create recipient address from target state hash
+    let target_state_hash = target_state.hash().expect("Failed to hash state");
+    let recipient = unicity_sdk::types::address::GenericAddress::direct(target_state_hash);
+
     let mint_data = MintTransactionData::new(
         token_id,
         TokenType::new(vec![1, 2, 3, 4]),
-        target_state,
-        Some(vec![5, 6, 7, 8]),
-        Some(vec![1, 2, 3, 4, 5]),
-        None,
+        Some(vec![5, 6, 7, 8]),  // token_data
+        None,  // coin_data (not Vec<u8>!)
+        recipient,  // recipient address
+        vec![1, 2, 3, 4, 5],  // salt (not Option)
+        None,  // recipient_data_hash
+        None,  // reason
     );
 
     let commitment =
@@ -93,13 +100,20 @@ async fn test_raw_submit_commitment() {
         TokenState::from_predicate(&predicate, None).expect("Failed to create state");
 
     let token_id = TokenId::unique();
+
+    // Create recipient address from target state hash
+    let target_state_hash = target_state.hash().expect("Failed to hash state");
+    let recipient = unicity_sdk::types::address::GenericAddress::direct(target_state_hash);
+
     let mint_data = MintTransactionData::new(
         token_id,
         TokenType::new(vec![1, 2, 3, 4]),
-        target_state,
-        Some(vec![5, 6, 7, 8]),
-        Some(vec![1, 2, 3, 4, 5]),
-        None,
+        Some(vec![5, 6, 7, 8]),  // token_data
+        None,  // coin_data (not Vec<u8>!)
+        recipient,  // recipient address
+        vec![1, 2, 3, 4, 5],  // salt (not Option)
+        None,  // recipient_data_hash
+        None,  // reason
     );
 
     let commitment =

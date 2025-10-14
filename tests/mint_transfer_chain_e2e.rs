@@ -2,20 +2,17 @@ use unicity_sdk::client::aggregator::AggregatorClient;
 use unicity_sdk::types::commitment::{MintCommitment, TransferCommitment};
 use unicity_sdk::types::predicate::{MaskedPredicate, UnmaskedPredicate};
 use unicity_sdk::types::token::{Token, TokenState, TokenType, TokenId};
-use unicity_sdk::types::transaction::{MintTransactionData, TransferTransactionData, Transaction, InclusionProof, PathElement, PathDirection};
+use unicity_sdk::types::transaction::{MintTransactionData, TransferTransactionData, Transaction, InclusionProof, MerkleTreePath};
 use unicity_sdk::crypto::KeyPair;
 use unicity_sdk::types::primitives::DataHash;
 
 /// Create a mock inclusion proof for testing
-fn create_mock_inclusion_proof(block_height: u64) -> InclusionProof {
-    InclusionProof::new(
-        block_height,
-        vec![
-            PathElement::new(PathDirection::Left, DataHash::sha256(b"path1".to_vec())),
-            PathElement::new(PathDirection::Right, DataHash::sha256(b"path2".to_vec())),
-        ],
-        DataHash::sha256(b"root".to_vec()),
-    )
+fn create_mock_inclusion_proof(_block_height: u64) -> InclusionProof {
+    let merkle_path = MerkleTreePath {
+        root: hex::encode(DataHash::sha256(b"mock_root".to_vec()).imprint()),
+        steps: vec![],
+    };
+    InclusionProof::new(merkle_path)
 }
 
 #[tokio::test]
@@ -72,13 +69,19 @@ async fn test_mint_transfer_chain() {
         Some(b"Alice's token".to_vec())
     ).unwrap();
 
+    // Create recipient address from alice state hash
+    let alice_state_hash = alice_state.hash().unwrap();
+    let alice_recipient = unicity_sdk::types::address::GenericAddress::direct(alice_state_hash);
+
     let mint_data = MintTransactionData::new(
         token_id.clone(),
         token_type.clone(),
-        alice_state.clone(),
-        Some(b"Test token metadata".to_vec()),
-        Some(vec![1, 2, 3, 4, 5]), // 5-byte salt
-        None,
+        Some(b"Test token metadata".to_vec()),  // token_data
+        None,  // coin_data
+        alice_recipient,  // recipient address
+        vec![1, 2, 3, 4, 5],  // 5-byte salt (not Option)
+        None,  // recipient_data_hash
+        None,  // reason
     );
 
     let mint_commitment = MintCommitment::create(mint_data.clone())
@@ -114,10 +117,17 @@ async fn test_mint_transfer_chain() {
         Some(b"Bob's token".to_vec())
     ).unwrap();
 
+    // Create recipient address from bob state hash
+    let bob_state_hash = bob_state.hash().unwrap();
+    let bob_recipient = unicity_sdk::types::address::GenericAddress::direct(bob_state_hash);
+
     let transfer_data_alice_to_bob = TransferTransactionData::new(
         alice_state.clone(),
-        bob_state.clone(),
-        Some(vec![6, 7, 8, 9, 10]), // Different salt
+        bob_recipient,  // recipient address
+        vec![6, 7, 8, 9, 10],  // Different salt (not Option)
+        None,  // recipient_data_hash
+        None,  // message
+        vec![],  // nametags
     );
 
     // Create transfer commitment signed by Alice
@@ -159,10 +169,17 @@ async fn test_mint_transfer_chain() {
         Some(b"Carol's token".to_vec())
     ).unwrap();
 
+    // Create recipient address from carol state hash
+    let carol_state_hash = carol_state.hash().unwrap();
+    let carol_recipient = unicity_sdk::types::address::GenericAddress::direct(carol_state_hash);
+
     let transfer_data_bob_to_carol = TransferTransactionData::new(
         bob_state.clone(),
-        carol_state.clone(),
-        Some(vec![11, 12, 13, 14, 15]), // Different salt again
+        carol_recipient,  // recipient address
+        vec![11, 12, 13, 14, 15],  // Different salt again (not Option)
+        None,  // recipient_data_hash
+        None,  // message
+        vec![],  // nametags
     );
 
     // Create transfer commitment signed by Bob
@@ -243,13 +260,19 @@ async fn test_real_mint_and_transfer() {
         Some(b"Alice's real token".to_vec())
     ).unwrap();
 
+    // Create recipient address from alice state hash
+    let alice_state_hash = alice_state.hash().unwrap();
+    let alice_recipient = unicity_sdk::types::address::GenericAddress::direct(alice_state_hash);
+
     let mint_data = MintTransactionData::new(
         token_id.clone(),
         token_type.clone(),
-        alice_state.clone(),
-        Some(b"Real token data".to_vec()),
-        Some(vec![100, 101, 102, 103, 104]),
-        None,
+        Some(b"Real token data".to_vec()),  // token_data
+        None,  // coin_data
+        alice_recipient,  // recipient address
+        vec![100, 101, 102, 103, 104],  // salt (not Option)
+        None,  // recipient_data_hash
+        None,  // reason
     );
 
     let mint_commitment = MintCommitment::create(mint_data.clone())

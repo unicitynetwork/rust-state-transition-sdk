@@ -242,10 +242,26 @@ impl TransferCommitment {
         let public_key_bytes = public_key_secp.serialize();
         let public_key = PublicKey::new(public_key_bytes)?;
 
-        let transfer_data =
-            TransferTransactionData::new(token.state.clone(), target_state.clone(), salt);
+        // Create recipient address from target state (predicate hash only, not including data)
+        let address_hash = target_state.address_hash()?;
+        let recipient = crate::types::address::GenericAddress::direct(address_hash);
 
-        // For transfer, state hash is the hash of the target state
+        // Compute recipient_data_hash from target state data (if present)
+        let recipient_data_hash = target_state.data_hash();
+
+        // Use provided salt or generate one
+        let salt_vec = salt.unwrap_or_else(|| vec![0u8; 8]);
+
+        let transfer_data = TransferTransactionData::new(
+            token.state.clone(),
+            recipient,
+            salt_vec,
+            recipient_data_hash,  // SHA256 of target_state.data if present
+            None,  // message
+            vec![], // nametags
+        );
+
+        // For transfer, state hash is the hash of the target state (full hash including data)
         let state_hash = target_state.hash()?;
 
         // Calculate transaction hash
@@ -326,14 +342,20 @@ mod tests {
         let predicate = UnmaskedPredicate::new(public_key);
         let target_state = TokenState::from_predicate(&predicate, None).unwrap();
 
+        // Create recipient address from target state (predicate hash only, not including data)
+        let address_hash = target_state.address_hash().unwrap();
+        let recipient = crate::types::address::GenericAddress::direct(address_hash);
+
         let token_id = TokenId::new([1u8; 32]);
         let mint_data = MintTransactionData::new(
             token_id,
             TokenType::new(vec![1, 2, 3]),
-            target_state,
-            Some(vec![4, 5, 6]),
-            Some(vec![7, 8, 9]),
-            None,
+            Some(vec![4, 5, 6]),  // token_data
+            None,  // coin_data
+            recipient,
+            vec![7, 8, 9],  // salt
+            None,  // recipient_data_hash
+            None,  // reason
         );
 
         // MintCommitment::create uses universal minter, no secret key needed

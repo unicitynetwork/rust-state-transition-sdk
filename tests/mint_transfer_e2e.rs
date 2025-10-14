@@ -56,14 +56,20 @@ async fn test_mint_token_e2e() {
     let target_state = TokenState::from_predicate(&alice_predicate, Some(b"Alice's test token".to_vec()))
         .expect("Failed to create token state");
 
+    // Create recipient address from target state hash
+    let target_state_hash = target_state.hash().unwrap();
+    let recipient = unicity_sdk::types::address::GenericAddress::direct(target_state_hash);
+
     // Create mint transaction data with all required fields
     let mint_data = MintTransactionData::new(
         token_id.clone(),
         TokenType::new(vec![1, 2, 3, 4]), // Simple token type
-        target_state,
-        Some(b"Test token metadata".to_vec()), // Token data
-        Some(vec![0u8; 5]), // Salt for uniqueness (5 bytes like Java tests)
-        None, // No split mint reason
+        Some(b"Test token metadata".to_vec()), // token_data
+        None, // coin_data (None for non-fungible tokens)
+        recipient, // recipient address
+        vec![0u8; 5], // Salt for uniqueness (5 bytes like Java tests) - not Option
+        None, // recipient_data_hash
+        None, // reason - No split mint reason
     );
 
     println!("   Token ID: {}", hex::encode(token_id.as_bytes()));
@@ -103,12 +109,12 @@ async fn test_mint_token_e2e() {
                     ).await {
                         Ok(proof) => {
                             println!("   ✅ Got inclusion proof!");
-                            println!("   Block height: {}", proof.block_height);
-                            println!("   Path length: {}", proof.path.len());
+                            println!("   Merkle root: {}", proof.merkle_tree_path.root);
+                            println!("   Path steps: {}", proof.merkle_tree_path.steps.len());
 
                             // Step 7: Create the token
                             let transaction = mint_commitment.to_transaction(proof);
-                            let token = Token::new(mint_data.target_state.clone(), transaction);
+                            let token = Token::new(target_state.clone(), transaction);
 
                             println!("\n🎉 SUCCESS! Token minted!");
                             println!("   Token ID: {}", token.id().unwrap());

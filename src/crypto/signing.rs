@@ -64,12 +64,18 @@ impl SigningService {
     }
 
     /// Verify a signature against data and public key
+    ///
+    /// This performs direct ECDSA verification matching Java SDK behavior,
+    /// which verifies using the r,s signature components and public key directly
+    /// (not using public key recovery).
     pub fn verify(
         &self,
         data: &[u8],
         signature: &Signature,
         public_key: &PublicKey,
     ) -> Result<bool> {
+        use secp256k1::ecdsa::Signature as EcdsaSignature;
+
         // Create message
         let message = if data.len() == 32 {
             Message::from_digest(
@@ -82,17 +88,16 @@ impl SigningService {
             Message::from_digest(hash.into())
         };
 
-        // Extract signature components
-        let recovery_id = secp256k1::ecdsa::RecoveryId::from_u8_masked(signature.recovery_id());
+        // Extract r and s from signature (first 64 bytes)
+        // This matches Java SDK: BigInteger r = new BigInteger(1, Arrays.copyOfRange(signature, 0, 32));
+        //                         BigInteger s = new BigInteger(1, Arrays.copyOfRange(signature, 32, 64));
+        let ecdsa_sig = EcdsaSignature::from_compact(&signature.as_bytes()[..64])?;
 
-        let recoverable_sig =
-            RecoverableSignature::from_compact(&signature.as_bytes()[..64], recovery_id)?;
+        // Get secp256k1 public key
+        let secp_pubkey = public_key.to_secp256k1()?;
 
-        // Recover public key from signature
-        let recovered_key = self.secp.recover_ecdsa(message, &recoverable_sig)?;
-        let expected_key = public_key.to_secp256k1()?;
-
-        Ok(recovered_key == expected_key)
+        // Direct ECDSA verification (matches Java's ECDSASigner.verifySignature)
+        Ok(self.secp.verify_ecdsa(message, &ecdsa_sig, &secp_pubkey).is_ok())
     }
 
     /// Recover public key from signature

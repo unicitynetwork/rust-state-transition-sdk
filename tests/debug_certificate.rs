@@ -29,13 +29,19 @@ async fn test_debug_certificate_parsing() {
     let token_id = TokenId::unique();
     let token_type = TokenType::new(b"DEBUG_TEST".to_vec());
 
+    // Create recipient address from state hash
+    let state_hash = state.hash().unwrap();
+    let recipient = unicity_sdk::types::address::GenericAddress::direct(state_hash);
+
     let mint_data = MintTransactionData::new(
         token_id.clone(),
         token_type.clone(),
-        state.clone(),
-        None,
-        Some(vec![0x01, 0x02, 0x03]),
-        None,
+        None,  // token_data
+        None,  // coin_data
+        recipient,  // recipient address
+        vec![0x01, 0x02, 0x03],  // salt (not Option)
+        None,  // recipient_data_hash
+        None,  // reason
     );
 
     let mint_commitment = MintCommitment::create(mint_data.clone())

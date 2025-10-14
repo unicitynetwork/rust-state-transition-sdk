@@ -4,12 +4,14 @@
 //! - Creating test identities
 //! - Minting a token
 //! - Transferring the token between users
+//! - Saving tokens to files
 
 use unicity_sdk::client::StateTransitionClient;
 use unicity_sdk::crypto::TestIdentity;
 use unicity_sdk::types::predicate::{MaskedPredicate, UnmaskedPredicate};
 use unicity_sdk::types::token::{TokenState, TokenType, TokenId};
 use unicity_sdk::types::transaction::MintTransactionData;
+use std::fs;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -35,42 +37,65 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Step 1: Mint token for Alice
     println!("\n🪙 Step 1: Minting token for Alice...");
 
-    // Use masked predicate for initial ownership
-    let nonce = b"alice_nonce_12345";
-    let alice_masked =
-        MaskedPredicate::from_public_key_and_nonce(alice.key_pair.public_key(), nonce);
-    let alice_state = TokenState::from_predicate(&alice_masked, Some(b"Alice's token".to_vec()))?;
+    // Use unmasked predicate for Alice's initial ownership
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_millis();
+    let alice_predicate = UnmaskedPredicate::new(alice.key_pair.public_key().clone());
+    let alice_state = TokenState::from_predicate(&alice_predicate, Some(b"Alice's token".to_vec()))?;
 
     let token_id = TokenId::unique();
+
+    // Create recipient address from alice's state (predicate hash only, not including data)
+    let address_hash = alice_state.address_hash()?;
+    let recipient = unicity_sdk::types::address::GenericAddress::direct(address_hash);
+
+    // Compute recipient_data_hash from state data (required when state has data)
+    let recipient_data_hash = alice_state.data_hash();
+
     let mint_data = MintTransactionData::new(
         token_id,
         TokenType::new(b"EXAMPLE_TOKEN".to_vec()),
-        alice_state.clone(),
-        Some(b"Initial token data".to_vec()),
-        Some(vec![1, 2, 3, 4, 5]),
-        None,
+        Some(b"Initial token data".to_vec()),  // token_data
+        None,  // coin_data (None for non-fungible tokens)
+        recipient,  // recipient address
+        format!("salt_{}", timestamp).into_bytes(),  // salt (not Option<Vec<u8>>)
+        recipient_data_hash,  // recipient_data_hash (SHA256 of alice_state.data)
+        None,  // reason
     );
 
     match client
-        .mint_token(mint_data)
+        .mint_token(mint_data, alice_state)
         .await
     {
         Ok(token) => {
             println!("  ✅ Token minted successfully!");
             println!("  Token ID: {}", token.id()?);
 
+            // Save minted token to file
+            let minted_json = serde_json::to_string_pretty(&token)?;
+            fs::write("minted_token.json", minted_json)?;
+            println!("  💾 Saved to minted_token.json");
+
             // Step 2: Transfer to Bob
             println!("\n📤 Step 2: Transferring token from Alice to Bob...");
 
+            let transfer_timestamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)?
+                .as_millis();
+
             let bob_predicate = UnmaskedPredicate::new(bob.key_pair.public_key().clone());
+            let bob_data = format!("Bob's token {}", transfer_timestamp).into_bytes();
             let bob_state =
-                TokenState::from_predicate(&bob_predicate, Some(b"Bob's token".to_vec()))?;
+                TokenState::from_predicate(&bob_predicate, Some(bob_data))?;
+
+            let transfer_salt = format!("transfer_salt_{}", transfer_timestamp).into_bytes();
 
             match client
                 .transfer_token(
                     &token,
                     bob_state,
-                    Some(b"transfer_salt_123".to_vec()),
+                    Some(transfer_salt),
                     alice.key_pair.secret_key(),
                 )
                 .await
@@ -82,6 +107,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         "  Transaction count: {}",
                         transferred_token.transactions.len()
                     );
+
+                    // Save transferred token to file
+                    let transferred_json = serde_json::to_string_pretty(&transferred_token)?;
+                    fs::write("transferred_token.json", transferred_json)?;
+                    println!("  💾 Saved to transferred_token.json");
                 }
                 Err(e) => {
                     println!("  ❌ Transfer failed: {}", e);

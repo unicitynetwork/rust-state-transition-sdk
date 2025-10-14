@@ -17,13 +17,19 @@ async fn test_raw_json_rpc_response() {
     let predicate = UnmaskedPredicate::new(key.public_key().clone());
     let state = TokenState::from_predicate(&predicate, Some(b"debug".to_vec())).unwrap();
 
+    // Create recipient address from state hash
+    let state_hash = state.hash().unwrap();
+    let recipient = unicity_sdk::types::address::GenericAddress::direct(state_hash);
+
     let mint_data = MintTransactionData::new(
         token_id,
         token_type,
-        state,
-        Some(b"metadata".to_vec()),
-        Some(vec![1, 2, 3, 4, 5]),
-        None,
+        Some(b"metadata".to_vec()),  // token_data
+        None,  // coin_data (not Vec<u8>!)
+        recipient,  // recipient address
+        vec![1, 2, 3, 4, 5],  // salt (not Option)
+        None,  // recipient_data_hash
+        None,  // reason
     );
 
     let commitment = MintCommitment::create(mint_data).unwrap();
