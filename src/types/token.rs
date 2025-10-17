@@ -147,16 +147,6 @@ impl Serialize for TokenType {
     }
 }
 
-// impl<'de> Deserialize<'de> for TokenType {
-//     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-//     where
-//         D: serde::Deserializer<'de>,
-//     {
-//         let hex_string = String::deserialize(deserializer)?;
-//         let bytes = hex::decode(&hex_string).map_err(serde::de::Error::custom)?;
-//         Ok(TokenType(bytes))
-//     }
-// }
 impl<'de> Deserialize<'de> for TokenType {
     fn deserialize<D>(deserializer: D) -> core::result::Result<Self, D::Error>
     where

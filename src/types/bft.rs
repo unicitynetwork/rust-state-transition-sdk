@@ -469,24 +469,25 @@ impl UnicityCertificate {
     }
 
     fn verify_signature(&self, hash: &[u8], signature: &[u8], public_key: &[u8]) -> Result<bool> {
-        use secp256k1::{Message, Secp256k1, ecdsa::Signature, PublicKey};
-
-        let secp = Secp256k1::verification_only();
+        use k256::ecdsa::{Signature as K256Signature, VerifyingKey, signature::hazmat::PrehashVerifier};
+        use k256::PublicKey as K256PublicKey;
 
         // Parse the public key
-        let pk = PublicKey::from_slice(public_key)
+        let pk = K256PublicKey::from_sec1_bytes(public_key)
             .map_err(|e| SdkError::Crypto(format!("Invalid public key: {}", e)))?;
+        let verifying_key = VerifyingKey::from(pk);
 
-        // Create message from hash
-        let message = Message::from_digest(hash.try_into()
-            .map_err(|_| SdkError::Crypto("Hash must be exactly 32 bytes".into()))?);
+        // Ensure hash is exactly 32 bytes
+        if hash.len() != 32 {
+            return Err(SdkError::Crypto("Hash must be exactly 32 bytes".into()));
+        }
 
         // Parse signature in compact format (r||s)
-        let sig = Signature::from_compact(signature)
+        let sig = K256Signature::from_slice(signature)
             .map_err(|e| SdkError::Crypto(format!("Invalid signature: {}", e)))?;
 
-        // Verify the signature
-        Ok(secp.verify_ecdsa(message, &sig, &pk).is_ok())
+        // Verify the signature using prehash since we already have a hash
+        Ok(verifying_key.verify_prehash(hash, &sig).is_ok())
     }
 }
 

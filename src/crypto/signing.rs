@@ -3,72 +3,60 @@ extern crate alloc;
 use crate::error::{Result, SdkError};
 use crate::prelude::*;
 use crate::types::primitives::{PublicKey, Signature};
-use secp256k1::{
-    Secp256k1,
-    ecdsa::RecoverableSignature,
-    Message, SecretKey,
+use k256::ecdsa::{
+    SigningKey, VerifyingKey,
+    signature::hazmat::PrehashVerifier,
+    Signature as K256Signature,
+    RecoveryId,
 };
-#[cfg(not(feature = "std"))]
-use alloc::sync::Arc;
-#[cfg(feature = "std")]
-use std::sync::Arc;
 
-/// Signing service for secp256k1 operations
+/// Signing service for secp256k1 operations using k256
 #[derive(Clone)]
-pub struct SigningService {
-    secp: Arc<Secp256k1<secp256k1::All>>,
-}
+pub struct SigningService;
 
 impl SigningService {
     /// Create a new signing service
     pub fn new() -> Self {
-        Self {
-            secp: Arc::new(Secp256k1::new()),
-        }
+        Self
     }
 
     /// Sign data with a secret key
-    pub fn sign(&self, data: &[u8], secret_key: &SecretKey) -> Result<Signature> {
-        // Create message from data (must be 32 bytes)
-        let message = if data.len() == 32 {
-            Message::from_digest(
-                data.try_into()
-                    .map_err(|_| SdkError::Crypto("Data must be 32 bytes".to_string()))?,
-            )
+    pub fn sign(&self, data: &[u8], secret_key: &SigningKey) -> Result<Signature> {
+        // Hash the data if not 32 bytes
+        let msg_hash = if data.len() == 32 {
+            let mut hash = [0u8; 32];
+            hash.copy_from_slice(data);
+            hash
         } else {
-            // Hash the data if not 32 bytes
             use sha2::{Digest, Sha256};
             let hash = Sha256::digest(data);
-            Message::from_digest(hash.into())
+            hash.into()
         };
 
-        // Sign with recovery
-        let recoverable_sig = self.secp.sign_ecdsa_recoverable(message, secret_key);
-        let (recovery_id, sig_bytes) = recoverable_sig.serialize_compact();
+        // Sign using prehash since we already have a hash
+        let (sig, recovery_id) = secret_key.sign_prehash_recoverable(&msg_hash)
+            .map_err(|e| SdkError::Crypto(format!("Signing failed: {}", e)))?;
+        let sig_bytes = sig.to_bytes();
 
-        // Ensure s-value is in lower half (malleability protection)
-        let sig = self.normalize_signature(sig_bytes)?;
-
-        // Create 65-byte signature
+        // Create 65-byte signature (r || s || v)
         let mut signature_bytes = [0u8; 65];
-        signature_bytes[..64].copy_from_slice(&sig);
-        signature_bytes[64] = recovery_id as u8;
+        signature_bytes[..64].copy_from_slice(sig_bytes.as_slice());
+        signature_bytes[64] = recovery_id.to_byte();
 
         Ok(Signature::new(signature_bytes))
     }
 
     /// Sign a hash (already 32 bytes)
-    pub fn sign_hash(&self, hash: &[u8; 32], secret_key: &SecretKey) -> Result<Signature> {
-        let message = Message::from_digest(*hash);
+    pub fn sign_hash(&self, hash: &[u8; 32], secret_key: &SigningKey) -> Result<Signature> {
+        // Sign using prehash_recoverable
+        let (sig, recovery_id) = secret_key.sign_prehash_recoverable(hash)
+            .map_err(|e| SdkError::Crypto(format!("Signing failed: {}", e)))?;
+        let sig_bytes = sig.to_bytes();
 
-        let recoverable_sig = self.secp.sign_ecdsa_recoverable(message, secret_key);
-        let (recovery_id, sig_bytes) = recoverable_sig.serialize_compact();
-
-        let sig = self.normalize_signature(sig_bytes)?;
-
+        // Create 65-byte signature (r || s || v)
         let mut signature_bytes = [0u8; 65];
-        signature_bytes[..64].copy_from_slice(&sig);
-        signature_bytes[64] = recovery_id as u8;
+        signature_bytes[..64].copy_from_slice(sig_bytes.as_slice());
+        signature_bytes[64] = recovery_id.to_byte();
 
         Ok(Signature::new(signature_bytes))
     }
@@ -84,67 +72,59 @@ impl SigningService {
         signature: &Signature,
         public_key: &PublicKey,
     ) -> Result<bool> {
-        use secp256k1::ecdsa::Signature as EcdsaSignature;
-
-        // Create message
-        let message = if data.len() == 32 {
-            Message::from_digest(
-                data.try_into()
-                    .map_err(|_| SdkError::Crypto("Data must be 32 bytes".to_string()))?,
-            )
+        // Hash the data if not 32 bytes
+        let msg_hash = if data.len() == 32 {
+            let mut hash = [0u8; 32];
+            hash.copy_from_slice(data);
+            hash
         } else {
             use sha2::{Digest, Sha256};
             let hash = Sha256::digest(data);
-            Message::from_digest(hash.into())
+            hash.into()
         };
 
         // Extract r and s from signature (first 64 bytes)
-        // This matches Java SDK: BigInteger r = new BigInteger(1, Arrays.copyOfRange(signature, 0, 32));
-        //                         BigInteger s = new BigInteger(1, Arrays.copyOfRange(signature, 32, 64));
-        let ecdsa_sig = EcdsaSignature::from_compact(&signature.as_bytes()[..64])?;
+        let sig_bytes = &signature.as_bytes()[..64];
+        let ecdsa_sig = K256Signature::from_slice(sig_bytes)
+            .map_err(|e| SdkError::Crypto(format!("Invalid signature: {}", e)))?;
 
-        // Get secp256k1 public key
-        let secp_pubkey = public_key.to_secp256k1()?;
+        // Get k256 verifying key
+        let verifying_key = public_key.to_verifying_key()?;
 
-        // Direct ECDSA verification (matches Java's ECDSASigner.verifySignature)
-        Ok(self.secp.verify_ecdsa(message, &ecdsa_sig, &secp_pubkey).is_ok())
+        // Direct ECDSA verification using prehash since we already hashed
+        Ok(verifying_key.verify_prehash(&msg_hash, &ecdsa_sig).is_ok())
     }
 
     /// Recover public key from signature
     pub fn recover_public_key(&self, data: &[u8], signature: &Signature) -> Result<PublicKey> {
-        // Create message
-        let message = if data.len() == 32 {
-            Message::from_digest(
-                data.try_into()
-                    .map_err(|_| SdkError::Crypto("Data must be 32 bytes".to_string()))?,
-            )
+        // Hash the data if not 32 bytes
+        let msg_hash = if data.len() == 32 {
+            let mut hash = [0u8; 32];
+            hash.copy_from_slice(data);
+            hash
         } else {
             use sha2::{Digest, Sha256};
             let hash = Sha256::digest(data);
-            Message::from_digest(hash.into())
+            hash.into()
         };
 
-        // Extract signature components
-        let recovery_id = secp256k1::ecdsa::RecoveryId::from_u8_masked(signature.recovery_id());
+        // Extract recovery ID
+        let recovery_id_byte = signature.recovery_id();
+        let recovery_id = RecoveryId::from_byte(recovery_id_byte)
+            .ok_or_else(|| SdkError::Crypto("Invalid recovery ID".to_string()))?;
 
-        let recoverable_sig =
-            RecoverableSignature::from_compact(&signature.as_bytes()[..64], recovery_id)?;
+        // Extract signature from r || s
+        let sig_bytes = &signature.as_bytes()[..64];
+        let sig = K256Signature::from_slice(sig_bytes)
+            .map_err(|e| SdkError::Crypto(format!("Invalid signature: {}", e)))?;
 
         // Recover public key
-        let recovered_key = self.secp.recover_ecdsa(message, &recoverable_sig)?;
-        PublicKey::new(recovered_key.serialize())
+        let recovered_key = VerifyingKey::recover_from_prehash(&msg_hash, &sig, recovery_id)
+            .map_err(|e| SdkError::Crypto(format!("Key recovery failed: {}", e)))?;
+
+        PublicKey::from_verifying_key(&recovered_key)
     }
 
-    /// Normalize signature to ensure s-value is in lower half (malleability protection)
-    fn normalize_signature(&self, sig_bytes: [u8; 64]) -> Result<[u8; 64]> {
-        use secp256k1::ecdsa::Signature as EcdsaSignature;
-
-        let mut sig = EcdsaSignature::from_compact(&sig_bytes)?;
-        sig.normalize_s();
-
-        let normalized = sig.serialize_compact();
-        Ok(normalized)
-    }
 }
 
 impl Default for SigningService {
@@ -155,18 +135,18 @@ impl Default for SigningService {
 
 /// Generate a new random secret key
 #[cfg(feature = "rand")]
-pub fn generate_secret_key() -> SecretKey {
-    use secp256k1::rand;
-    let secp = Secp256k1::new();
-    let (secret_key, _) = secp.generate_keypair(&mut rand::rng());
-    secret_key
+pub fn generate_secret_key() -> SigningKey {
+    use rand::RngCore;
+    let mut rng = rand::thread_rng();
+    let mut bytes = [0u8; 32];
+    rng.fill_bytes(&mut bytes);
+    SigningKey::from_bytes(&bytes.into()).expect("Failed to generate signing key")
 }
 
 /// Get public key from secret key
-pub fn public_key_from_secret(secret_key: &SecretKey) -> Result<PublicKey> {
-    let secp = Secp256k1::new();
-    let public_key_secp = secp256k1::PublicKey::from_secret_key(&secp, secret_key);
-    PublicKey::new(public_key_secp.serialize())
+pub fn public_key_from_secret(secret_key: &SigningKey) -> Result<PublicKey> {
+    let verifying_key = VerifyingKey::from(secret_key);
+    PublicKey::from_verifying_key(&verifying_key)
 }
 
 #[cfg(test)]

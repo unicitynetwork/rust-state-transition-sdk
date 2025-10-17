@@ -27,7 +27,7 @@ std = [
     "chrono",
     "futures",
     "rand",
-    "secp256k1/rand",
+    "k256/std",
 ]
 
 # no_std build for zkVM guest or WASM targets etc.
@@ -42,9 +42,8 @@ zkvm = [
 tokio = { version = "1.45", features = ["full"], optional = true }
 
 # Cryptography
-secp256k1 = { version = "0.31", default-features = false, features = ["recovery", "global-context"] }
-# todo: use k256 = { git = "https://github.com/risc0/RustCrypto-elliptic-curves", tag = "k256/v0.13.3-risczero.1" }
-sha2 = { git = "https://github.com/risc0/RustCrypto-hashes", tag = "sha2-v0.10.8-risczero.0" }
+k256 = { version = "0.13", default-features = false, features = ["ecdsa", "ecdsa-core", "sha256"] }
+sha2 = { version = "0.10", default-features = false }
 hex = { version = "0.4", default-features = false, features = ["alloc"] }
 rand = { version = "0.8", default-features = false, features = ["std", "std_rng"], optional = true }
 ripemd = { version = "0.1", default-features = false }

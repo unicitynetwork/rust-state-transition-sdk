@@ -7,7 +7,7 @@ use crate::types::token::{Token, TokenState};
 use crate::types::transaction::{
     MintTransactionData, NametagMintTransactionData, Transaction, TransferTransactionData,
 };
-use secp256k1::SecretKey;
+use k256::ecdsa::SigningKey;
 use std::time::Duration;
 
 /// High-level state transition client
@@ -82,7 +82,7 @@ impl StateTransitionClient {
         token: &Token<T>,
         target_state: TokenState,
         salt: Option<Vec<u8>>,
-        signing_key: &SecretKey,
+        signing_key: &SigningKey,
     ) -> Result<Token<T>>
     where
         T: Clone + serde::Serialize + for<'de> serde::Deserialize<'de>,
@@ -182,7 +182,7 @@ impl StateTransitionClient {
         &self,
         nametag: String,
         target_state: TokenState,
-        _signing_key: &SecretKey,
+        _signing_key: &SigningKey,
     ) -> Result<Token<NametagMintTransactionData>> {
         let nametag_data = NametagMintTransactionData::new(nametag, target_state.clone());
 
@@ -277,7 +277,7 @@ pub struct TokenBuilder<'a> {
     client: &'a StateTransitionClient,
     mint_data: Option<MintTransactionData>,
     initial_state: Option<TokenState>,
-    signing_key: Option<SecretKey>,
+    signing_key: Option<SigningKey>,
 }
 
 impl<'a> TokenBuilder<'a> {
@@ -304,7 +304,7 @@ impl<'a> TokenBuilder<'a> {
     }
 
     /// Set the signing key
-    pub fn with_signing_key(mut self, key: SecretKey) -> Self {
+    pub fn with_signing_key(mut self, key: SigningKey) -> Self {
         self.signing_key = Some(key);
         self
     }

@@ -10,3 +10,6 @@ pub use keys::KeyStore;
 pub use signing::{public_key_from_secret, SigningService};
 #[cfg(feature = "rand")]
 pub use signing::generate_secret_key;
+
+// Re-export k256 types for convenience
+pub use k256::ecdsa::{SigningKey, VerifyingKey};

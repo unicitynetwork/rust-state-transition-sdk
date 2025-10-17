@@ -56,26 +56,15 @@ impl Authenticator {
 
     /// Verify the authenticator against data
     pub fn verify(&self, data: &[u8]) -> Result<bool> {
-        use secp256k1::{Message, Secp256k1};
+        use crate::crypto::SigningService;
 
-        let secp = Secp256k1::new();
-        let message = Message::from_digest(
-            data.try_into()
-                .map_err(|_| SdkError::Crypto("Data must be 32 bytes".to_string()))?,
-        );
+        let signing_service = SigningService::new();
 
-        let recovery_id =
-            secp256k1::ecdsa::RecoveryId::from_u8_masked(self.signature.recovery_id());
+        // Recover the public key from the signature
+        let recovered_key = signing_service.recover_public_key(data, &self.signature)?;
 
-        let recoverable_sig = secp256k1::ecdsa::RecoverableSignature::from_compact(
-            &self.signature.as_bytes()[..64],
-            recovery_id,
-        )?;
-
-        let recovered_key = secp.recover_ecdsa(message, &recoverable_sig)?;
-        let expected_key = self.public_key.to_secp256k1()?;
-
-        Ok(recovered_key == expected_key)
+        // Check if the recovered key matches the expected public key
+        Ok(recovered_key == self.public_key)
     }
 }
 
@@ -111,15 +100,13 @@ impl MintCommitment {
     /// Create and sign a mint commitment using the universal minter
     pub fn create(mint_data: MintTransactionData) -> Result<Self> {
         use crate::minter::UniversalMinter;
-        use secp256k1::{Message, Secp256k1};
+        use crate::crypto::{SigningService, public_key_from_secret};
 
         // Use the universal minter to get the signing key for this token
         let signing_key = UniversalMinter::create_signing_key(mint_data.token_id.as_bytes())?;
 
-        let secp = Secp256k1::new();
-        let public_key_secp = secp256k1::PublicKey::from_secret_key(&secp, &signing_key);
-        let public_key_bytes = public_key_secp.serialize();
-        let public_key = PublicKey::new(public_key_bytes)?;
+        // Get public key from signing key
+        let public_key = public_key_from_secret(&signing_key)?;
 
         // For mint, the state hash is derived from the token ID + MINT_SUFFIX
         // This matches Java's MintTransactionState.create(tokenId).getHash()
@@ -142,19 +129,8 @@ impl MintCommitment {
 
         // Sign the transaction hash (not the state hash!)
         // The authenticator signs the transaction data, while state hash is stored for reference
-        let message = Message::from_digest(
-            transaction_hash
-                .data()
-                .try_into()
-                .map_err(|_| SdkError::Crypto("Transaction hash must be 32 bytes".to_string()))?,
-        );
-        let recoverable_sig = secp.sign_ecdsa_recoverable(message, &signing_key);
-        let (recovery_id, sig_bytes) = recoverable_sig.serialize_compact();
-
-        let mut signature_bytes = [0u8; 65];
-        signature_bytes[..64].copy_from_slice(&sig_bytes);
-        signature_bytes[64] = recovery_id as u8;
-        let signature = Signature::new(signature_bytes);
+        let signing_service = SigningService::new();
+        let signature = signing_service.sign(transaction_hash.data(), &signing_key)?;
 
         let authenticator = Authenticator::new(public_key, signature, state_hash.clone());
 
@@ -231,17 +207,15 @@ impl TransferCommitment {
         token: &Token<T>,
         target_state: crate::types::token::TokenState,
         salt: Option<Vec<u8>>,
-        signing_key: &secp256k1::SecretKey,
+        signing_key: &k256::ecdsa::SigningKey,
     ) -> Result<Self>
     where
         T: Clone + Serialize + for<'de> Deserialize<'de>,
     {
-        use secp256k1::{Message, Secp256k1};
+        use crate::crypto::{SigningService, public_key_from_secret};
 
-        let secp = Secp256k1::new();
-        let public_key_secp = secp256k1::PublicKey::from_secret_key(&secp, signing_key);
-        let public_key_bytes = public_key_secp.serialize();
-        let public_key = PublicKey::new(public_key_bytes)?;
+        // Get public key from signing key
+        let public_key = public_key_from_secret(signing_key)?;
 
         // Create recipient address from target state (predicate hash only, not including data)
         let address_hash = target_state.address_hash()?;
@@ -273,19 +247,8 @@ impl TransferCommitment {
 
         // Sign the transaction hash (not the state hash!)
         // The authenticator signs the transaction data, while state hash is stored for reference
-        let message = Message::from_digest(
-            transaction_hash
-                .data()
-                .try_into()
-                .map_err(|_| SdkError::Crypto("Transaction hash must be 32 bytes".to_string()))?,
-        );
-        let recoverable_sig = secp.sign_ecdsa_recoverable(message, &signing_key);
-        let (recovery_id, sig_bytes) = recoverable_sig.serialize_compact();
-
-        let mut signature_bytes = [0u8; 65];
-        signature_bytes[..64].copy_from_slice(&sig_bytes);
-        signature_bytes[64] = recovery_id as u8;
-        let signature = Signature::new(signature_bytes);
+        let signing_service = SigningService::new();
+        let signature = signing_service.sign(transaction_hash.data(), &signing_key)?;
 
         let authenticator = Authenticator::new(public_key, signature, state_hash.clone());
 
@@ -372,26 +335,18 @@ mod tests {
 
     #[test]
     fn test_authenticator_verification() {
-        use secp256k1::rand;
-        use secp256k1::{Message, Secp256k1};
+        use crate::crypto::{SigningService, generate_secret_key, public_key_from_secret};
         use sha2::Digest;
 
-        let secp = Secp256k1::new();
-        let (secret_key, _) = secp.generate_keypair(&mut rand::rng());
-        let public_key_secp = secp256k1::PublicKey::from_secret_key(&secp, &secret_key);
-        let public_key = PublicKey::new(public_key_secp.serialize()).unwrap();
+        let secret_key = generate_secret_key();
+        let public_key = public_key_from_secret(&secret_key).unwrap();
 
         let data = b"test data";
         let hash = sha2::Sha256::digest(data);
         let state_hash = DataHash::sha256(hash.to_vec());
-        let message = Message::from_digest(hash.into());
-        let recoverable_sig = secp.sign_ecdsa_recoverable(message, &secret_key);
-        let (recovery_id, sig_bytes) = recoverable_sig.serialize_compact();
 
-        let mut signature_bytes = [0u8; 65];
-        signature_bytes[..64].copy_from_slice(&sig_bytes);
-        signature_bytes[64] = recovery_id as u8;
-        let signature = Signature::new(signature_bytes);
+        let signing_service = SigningService::new();
+        let signature = signing_service.sign(&hash, &secret_key).unwrap();
 
         let authenticator = Authenticator::new(public_key, signature, state_hash.clone());
         assert_eq!(authenticator.algorithm, "secp256k1");

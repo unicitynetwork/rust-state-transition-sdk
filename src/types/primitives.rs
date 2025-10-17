@@ -198,7 +198,9 @@ impl PublicKey {
     /// Create a new public key from bytes
     pub fn new(bytes: [u8; 33]) -> Result<Self> {
         // Validate it's a valid compressed public key
-        let _key = secp256k1::PublicKey::from_slice(&bytes)?;
+        use k256::PublicKey as K256PublicKey;
+        let _key = K256PublicKey::from_sec1_bytes(&bytes)
+            .map_err(|e| SdkError::Crypto(format!("Invalid public key: {}", e)))?;
         Ok(Self(bytes))
     }
 
@@ -207,9 +209,25 @@ impl PublicKey {
         &self.0
     }
 
-    /// Convert to secp256k1 PublicKey
-    pub fn to_secp256k1(&self) -> Result<secp256k1::PublicKey> {
-        Ok(secp256k1::PublicKey::from_slice(&self.0)?)
+    /// Convert to k256 VerifyingKey
+    pub fn to_verifying_key(&self) -> Result<k256::ecdsa::VerifyingKey> {
+        use k256::PublicKey as K256PublicKey;
+        let pubkey = K256PublicKey::from_sec1_bytes(&self.0)
+            .map_err(|e| SdkError::Crypto(format!("Invalid public key: {}", e)))?;
+        Ok(k256::ecdsa::VerifyingKey::from(pubkey))
+    }
+
+    /// Create from k256 VerifyingKey
+    pub fn from_verifying_key(key: &k256::ecdsa::VerifyingKey) -> Result<Self> {
+        use k256::elliptic_curve::sec1::ToEncodedPoint;
+        let point = key.to_encoded_point(true); // compressed
+        let bytes = point.as_bytes();
+        if bytes.len() != 33 {
+            return Err(SdkError::Crypto("Invalid public key encoding".to_string()));
+        }
+        let mut array = [0u8; 33];
+        array.copy_from_slice(bytes);
+        Ok(Self(array))
     }
 }
 

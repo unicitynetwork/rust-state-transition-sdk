@@ -62,14 +62,6 @@ pub enum SdkError {
     #[cfg_attr(feature = "std", error("Base64 decode error: {0}"))]
     Base64Decode(#[from] base64::DecodeError),
 
-    #[cfg_attr(feature = "std", error("Secp256k1 error: {0}"))]
-    #[cfg(feature = "std")]
-    Secp256k1(#[from] secp256k1::Error),
-
-    #[cfg_attr(feature = "std", error("Secp256k1 error: {0}"))]
-    #[cfg(not(feature = "std"))]
-    Secp256k1(secp256k1::Error),
-
     #[cfg_attr(feature = "std", error("JSON error: {0}"))]
     #[cfg(feature = "std")]
     Json(#[from] serde_json::Error),
@@ -107,7 +99,6 @@ impl fmt::Display for SdkError {
             SdkError::StateTransition(msg) => write!(f, "State transition error: {}", msg),
             SdkError::Aggregator { status, message } => write!(f, "Aggregator error: {} - {}", status, message),
             SdkError::HexDecode(e) => write!(f, "Hex decode error: {}", e),
-            SdkError::Secp256k1(e) => write!(f, "Secp256k1 error: {}", e),
             SdkError::Json(e) => write!(f, "JSON error: {}", e),
             SdkError::Cbor(msg) => write!(f, "CBOR error: {}", msg),
             SdkError::NotImplemented(msg) => write!(f, "Not implemented: {}", msg),
@@ -118,13 +109,6 @@ impl fmt::Display for SdkError {
 pub type Result<T> = core::result::Result<T, SdkError>;
 
 // Manual From implementations for no_std mode
-#[cfg(not(feature = "std"))]
-impl From<secp256k1::Error> for SdkError {
-    fn from(err: secp256k1::Error) -> Self {
-        SdkError::Secp256k1(err)
-    }
-}
-
 #[cfg(not(feature = "std"))]
 impl From<hex::FromHexError> for SdkError {
     fn from(err: hex::FromHexError) -> Self {

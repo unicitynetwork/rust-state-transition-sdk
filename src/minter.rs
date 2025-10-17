@@ -1,6 +1,6 @@
 use crate::error::{Result, SdkError};
 use crate::types::primitives::PublicKey;
-use secp256k1::{SecretKey, Secp256k1};
+use k256::ecdsa::SigningKey;
 use sha2::{Digest, Sha256};
 use crate::prelude::*;
 
@@ -14,7 +14,7 @@ pub struct UniversalMinter;
 impl UniversalMinter {
     /// Create a signing key for a specific token ID
     /// This matches Java's SigningService.createFromMaskedSecret(MINTER_SECRET, tokenId.getBytes())
-    pub fn create_signing_key(token_id: &[u8]) -> Result<SecretKey> {
+    pub fn create_signing_key(token_id: &[u8]) -> Result<SigningKey> {
         // Decode the universal minter secret from hex
         let minter_secret = hex::decode(UNIVERSAL_MINTER_SECRET)
             .map_err(|e| SdkError::Crypto(format!("Invalid minter secret: {}", e)))?;
@@ -25,18 +25,17 @@ impl UniversalMinter {
         hasher.update(token_id);
         let hash = hasher.finalize();
 
-        // Create a SecretKey from the hash
+        // Create a SigningKey from the hash
         let hash_bytes: [u8; 32] = hash.into();
-        SecretKey::from_byte_array(hash_bytes)
+        SigningKey::from_bytes(&hash_bytes.into())
             .map_err(|e| SdkError::Crypto(format!("Invalid private key: {}", e)))
     }
 
     /// Get the public key for a specific token ID
     pub fn get_public_key(token_id: &[u8]) -> Result<PublicKey> {
+        use crate::crypto::public_key_from_secret;
         let secret_key = Self::create_signing_key(token_id)?;
-        let secp = Secp256k1::new();
-        let public_key_secp = secp256k1::PublicKey::from_secret_key(&secp, &secret_key);
-        PublicKey::new(public_key_secp.serialize())
+        public_key_from_secret(&secret_key)
     }
 
     /// Check if a public key matches the expected minter key for a token ID
@@ -52,6 +51,8 @@ mod tests {
 
     #[test]
     fn test_universal_minter_key_generation() {
+        use crate::crypto::public_key_from_secret;
+
         // Test with a sample token ID
         let token_id = b"test_token_12345";
 
@@ -62,9 +63,8 @@ mod tests {
         let public_key = UniversalMinter::get_public_key(token_id).unwrap();
 
         // Verify the public key matches
-        let secp = Secp256k1::new();
-        let expected_pubkey = secp256k1::PublicKey::from_secret_key(&secp, &signing_key);
-        assert_eq!(public_key.as_bytes(), &expected_pubkey.serialize());
+        let expected_pubkey = public_key_from_secret(&signing_key).unwrap();
+        assert_eq!(public_key.as_bytes(), expected_pubkey.as_bytes());
     }
 
     #[test]
@@ -75,7 +75,7 @@ mod tests {
         let key1 = UniversalMinter::create_signing_key(token_id).unwrap();
         let key2 = UniversalMinter::create_signing_key(token_id).unwrap();
 
-        assert_eq!(key1, key2);
+        assert_eq!(key1.to_bytes(), key2.to_bytes());
     }
 
     #[test]
@@ -86,6 +86,6 @@ mod tests {
         let key1 = UniversalMinter::create_signing_key(token_id1).unwrap();
         let key2 = UniversalMinter::create_signing_key(token_id2).unwrap();
 
-        assert_ne!(key1, key2);
+        assert_ne!(key1.to_bytes(), key2.to_bytes());
     }
 }

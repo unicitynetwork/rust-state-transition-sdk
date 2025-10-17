@@ -1,11 +1,11 @@
 use crate::error::{Result, SdkError};
 use crate::prelude::*;
 use crate::types::primitives::PublicKey;
-use secp256k1::{Secp256k1, SecretKey};
+use k256::ecdsa::{SigningKey, VerifyingKey};
 
 /// Key pair structure containing secret and public keys
 pub struct KeyPair {
-    secret_key: SecretKey,
+    secret_key: SigningKey,
     public_key: PublicKey,
 }
 
@@ -13,10 +13,15 @@ impl KeyPair {
     /// Generate a new random key pair
     #[cfg(feature = "rand")]
     pub fn generate() -> Result<Self> {
-        use secp256k1::rand;
-        let secp = Secp256k1::new();
-        let (secret_key, public_key_secp) = secp.generate_keypair(&mut rand::rng());
-        let public_key = PublicKey::new(public_key_secp.serialize())?;
+        use rand::RngCore;
+        let mut rng = rand::thread_rng();
+        let mut bytes = [0u8; 32];
+        rng.fill_bytes(&mut bytes);
+
+        let secret_key = SigningKey::from_bytes(&bytes.into())
+            .map_err(|e| SdkError::Crypto(format!("Failed to generate key: {}", e)))?;
+        let verifying_key = VerifyingKey::from(&secret_key);
+        let public_key = PublicKey::from_verifying_key(&verifying_key)?;
 
         Ok(Self {
             secret_key,
@@ -26,10 +31,10 @@ impl KeyPair {
 
     /// Create from secret key bytes (32 bytes)
     pub fn from_secret_bytes(bytes: &[u8; 32]) -> Result<Self> {
-        let secret_key = SecretKey::from_byte_array(*bytes)?;
-        let secp = Secp256k1::new();
-        let public_key_secp = secp256k1::PublicKey::from_secret_key(&secp, &secret_key);
-        let public_key = PublicKey::new(public_key_secp.serialize())?;
+        let secret_key = SigningKey::from_bytes(&(*bytes).into())
+            .map_err(|e| SdkError::Crypto(format!("Invalid secret key: {}", e)))?;
+        let verifying_key = VerifyingKey::from(&secret_key);
+        let public_key = PublicKey::from_verifying_key(&verifying_key)?;
 
         Ok(Self {
             secret_key,
@@ -60,7 +65,7 @@ impl KeyPair {
     }
 
     /// Get the secret key
-    pub fn secret_key(&self) -> &SecretKey {
+    pub fn secret_key(&self) -> &SigningKey {
         &self.secret_key
     }
 
@@ -71,7 +76,7 @@ impl KeyPair {
 
     /// Export secret key as bytes
     pub fn secret_bytes(&self) -> [u8; 32] {
-        self.secret_key.secret_bytes()
+        self.secret_key.to_bytes().into()
     }
 
     /// Export secret key as hex string
@@ -123,15 +128,17 @@ impl TestIdentity {
 }
 
 /// Derive a child key from parent key (simple derivation)
-pub fn derive_child_key(parent: &SecretKey, index: u32) -> Result<SecretKey> {
+pub fn derive_child_key(parent: &SigningKey, index: u32) -> Result<SigningKey> {
     use sha2::{Digest, Sha256};
 
     let mut hasher = Sha256::new();
-    hasher.update(&parent.secret_bytes());
+    hasher.update(&parent.to_bytes());
     hasher.update(&index.to_le_bytes());
     let hash = hasher.finalize();
 
-    SecretKey::from_byte_array(hash.into()).map_err(|e| SdkError::Crypto(e.to_string()))
+    let bytes: [u8; 32] = hash.into();
+    SigningKey::from_bytes(&bytes.into())
+        .map_err(|e| SdkError::Crypto(format!("Failed to derive child key: {}", e)))
 }
 
 /// Simple key storage interface (for testing/demo purposes)
@@ -232,8 +239,8 @@ mod tests {
         let child1 = derive_child_key(parent.secret_key(), 0).unwrap();
         let child2 = derive_child_key(parent.secret_key(), 1).unwrap();
 
-        assert_ne!(child1.secret_bytes(), child2.secret_bytes());
-        assert_ne!(parent.secret_bytes(), child1.secret_bytes());
+        assert_ne!(child1.to_bytes(), child2.to_bytes());
+        assert_ne!(parent.secret_bytes(), child1.to_bytes().as_ref());
     }
 
     #[test]
