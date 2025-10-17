@@ -1,3 +1,4 @@
+#![cfg(feature = "std")]
 use crate::client::jsonrpc::JsonRpcHttpTransport;
 use crate::error::{Result, SdkError};
 use crate::types::commitment::{Authenticator, Commitment};

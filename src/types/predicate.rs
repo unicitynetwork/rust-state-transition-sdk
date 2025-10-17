@@ -1,7 +1,8 @@
 use crate::error::{Result, SdkError};
+use crate::prelude::*;
 use crate::types::primitives::{DataHash, PublicKey};
 use serde::{Deserialize, Serialize};
-use std::fmt;
+use core::fmt;
 
 /// Predicate trait for ownership conditions
 pub trait Predicate: Send + Sync + fmt::Debug {

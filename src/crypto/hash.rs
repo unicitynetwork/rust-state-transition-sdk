@@ -1,4 +1,5 @@
 use crate::error::{Result, SdkError};
+use crate::prelude::*;
 use crate::types::primitives::{
     DataHash, RIPEMD160_ALGORITHM_ID, SHA224_ALGORITHM_ID, SHA256_ALGORITHM_ID,
     SHA384_ALGORITHM_ID, SHA512_ALGORITHM_ID,

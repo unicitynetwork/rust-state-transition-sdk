@@ -58,8 +58,17 @@
 //! }
 //! ```
 
-// Re-export all public modules
+#![cfg_attr(not(feature = "std"), no_std)]
+use crate::prelude::*;
+
+#[cfg(all(not(feature = "std"), feature = "zkvm"))]
+extern crate alloc;
+
+// Only include client module (and any network-related parts) in std builds
+pub mod prelude;
+#[cfg(feature = "std")]
 pub mod client;
+
 pub mod crypto;
 pub mod error;
 pub mod minter;
@@ -67,20 +76,20 @@ pub mod smt;
 pub mod types;
 
 // Re-export commonly used items at crate root
+#[cfg(feature = "std")]
 pub use client::{AggregatorClient, StateTransitionClient};
+
 pub use crypto::{KeyPair, SigningService};
 pub use error::{Result, SdkError};
 pub use types::{Token, TokenId, TokenState, TokenType};
 
-// Version information
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const VERSION_MAJOR: &str = env!("CARGO_PKG_VERSION_MAJOR");
 pub const VERSION_MINOR: &str = env!("CARGO_PKG_VERSION_MINOR");
 pub const VERSION_PATCH: &str = env!("CARGO_PKG_VERSION_PATCH");
 
-/// Initialize the SDK (sets up logging if enabled)
+#[cfg(feature = "std")]
 pub fn init() {
-    // Initialize tracing subscriber for logging
     let _ = tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::from_default_env()
@@ -89,15 +98,16 @@ pub fn init() {
         .try_init();
 }
 
-/// SDK configuration
+#[cfg(feature = "std")]
+#[derive(Clone, Debug)]
 pub struct Config {
     pub aggregator_url: String,
     pub timeout_seconds: u64,
     pub retry_attempts: u32,
 }
 
+#[cfg(feature = "std")]
 impl Config {
-    /// Create a new configuration
     pub fn new(aggregator_url: String) -> Self {
         Self {
             aggregator_url,
@@ -106,17 +116,16 @@ impl Config {
         }
     }
 
-    /// Create configuration for test network
     pub fn test_network() -> Self {
         Self::new("https://goggregator-test.unicity.network".to_string())
     }
 
-    /// Create configuration for local development
     pub fn local() -> Self {
         Self::new("http://localhost:3000".to_string())
     }
 }
 
+#[cfg(feature = "std")]
 impl Default for Config {
     fn default() -> Self {
         Self::test_network()

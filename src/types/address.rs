@@ -1,8 +1,9 @@
 use crate::error::Result;
+use crate::prelude::*;
 use crate::types::predicate::PredicateReference;
 use crate::types::primitives::DataHash;
 use serde::{Deserialize, Serialize};
-use std::fmt;
+use core::fmt;
 
 /// Address scheme enumeration
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -146,7 +147,7 @@ impl fmt::Display for GenericAddress {
 }
 
 impl Serialize for GenericAddress {
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    fn serialize<S>(&self, serializer: S) -> core::result::Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
@@ -162,7 +163,7 @@ impl Serialize for GenericAddress {
 }
 
 impl<'de> Deserialize<'de> for GenericAddress {
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    fn deserialize<D>(deserializer: D) -> core::result::Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {

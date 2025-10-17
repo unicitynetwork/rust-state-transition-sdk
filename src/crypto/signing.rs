@@ -1,9 +1,19 @@
+extern crate alloc;
+
 use crate::error::{Result, SdkError};
+use crate::prelude::*;
 use crate::types::primitives::{PublicKey, Signature};
-use secp256k1::{ecdsa::RecoverableSignature, Message, Secp256k1, SecretKey};
+use secp256k1::{
+    Secp256k1,
+    ecdsa::RecoverableSignature,
+    Message, SecretKey,
+};
+#[cfg(not(feature = "std"))]
+use alloc::sync::Arc;
+#[cfg(feature = "std")]
 use std::sync::Arc;
 
-/// Signing service for creating and verifying signatures
+/// Signing service for secp256k1 operations
 #[derive(Clone)]
 pub struct SigningService {
     secp: Arc<Secp256k1<secp256k1::All>>,
@@ -144,6 +154,7 @@ impl Default for SigningService {
 }
 
 /// Generate a new random secret key
+#[cfg(feature = "rand")]
 pub fn generate_secret_key() -> SecretKey {
     use secp256k1::rand;
     let secp = Secp256k1::new();

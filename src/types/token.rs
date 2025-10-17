@@ -1,9 +1,28 @@
 use crate::error::{Result, SdkError};
+use crate::prelude::*;
 use crate::types::predicate::{Predicate, PredicateReference};
 use crate::types::primitives::DataHash;
 use crate::types::transaction::{Transaction, TransactionDataTrait};
 use serde::{Deserialize, Serialize};
 use indexmap::IndexMap;
+
+/// Helper to create an IndexMap with a default hasher for both std and no_std
+#[cfg(feature = "std")]
+fn new_index_map<K, V>() -> IndexMap<K, V>
+where
+    K: core::hash::Hash + Eq,
+{
+    IndexMap::new()
+}
+
+/// Helper to create an IndexMap with a default hasher for both std and no_std
+#[cfg(not(feature = "std"))]
+fn new_index_map<K, V>() -> IndexMap<K, V, foldhash::fast::RandomState>
+where
+    K: core::hash::Hash + Eq,
+{
+    IndexMap::with_hasher(foldhash::fast::RandomState::default())
+}
 
 /// Token identifier - 32-byte hash
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -11,7 +30,7 @@ pub struct TokenId([u8; 32]);
 
 // Custom serialization to match Java SDK (hex string format)
 impl Serialize for TokenId {
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    fn serialize<S>(&self, serializer: S) -> core::result::Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
@@ -20,7 +39,7 @@ impl Serialize for TokenId {
 }
 
 impl<'de> Deserialize<'de> for TokenId {
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    fn deserialize<D>(deserializer: D) -> core::result::Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
@@ -78,6 +97,7 @@ impl TokenId {
 
     /// Generate a unique token ID using timestamp and random bytes
     /// This ensures uniqueness across test runs to avoid REQUEST_ID_EXISTS errors
+    #[cfg(feature = "std")]
     pub fn unique() -> Self {
         let mut bytes = [0u8; 32];
         let timestamp = std::time::SystemTime::now()
@@ -91,7 +111,8 @@ impl TokenId {
     }
 
     /// Generate a unique token ID with a marker byte for categorization
-    /// Useful for distinguishing token types in tests
+    /// Useful for distinguishing token types in e.g. tests
+    #[cfg(feature = "std")]
     pub fn unique_with_marker(marker: u8) -> Self {
         let mut bytes = [0u8; 32];
         let timestamp = std::time::SystemTime::now()
@@ -106,8 +127,8 @@ impl TokenId {
     }
 }
 
-impl std::fmt::Display for TokenId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for TokenId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", hex::encode(&self.0))
     }
 }
@@ -118,7 +139,7 @@ pub struct TokenType(Vec<u8>);
 
 // Custom serialization to match Java SDK (hex string format)
 impl Serialize for TokenType {
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    fn serialize<S>(&self, serializer: S) -> core::result::Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
@@ -126,8 +147,18 @@ impl Serialize for TokenType {
     }
 }
 
+// impl<'de> Deserialize<'de> for TokenType {
+//     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+//     where
+//         D: serde::Deserializer<'de>,
+//     {
+//         let hex_string = String::deserialize(deserializer)?;
+//         let bytes = hex::decode(&hex_string).map_err(serde::de::Error::custom)?;
+//         Ok(TokenType(bytes))
+//     }
+// }
 impl<'de> Deserialize<'de> for TokenType {
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    fn deserialize<D>(deserializer: D) -> core::result::Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
@@ -149,7 +180,7 @@ impl TokenType {
     }
 }
 
-/// Token state containing unlock predicate and optional data
+/// Token state containing unlock predicate and optional data payload
 #[derive(Debug, Clone)]
 pub struct TokenState {
     pub unlock_predicate: PredicateReference,
@@ -221,7 +252,7 @@ impl TokenState {
 
 // Custom serialization for TokenState to match Java SDK format
 impl Serialize for TokenState {
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    fn serialize<S>(&self, serializer: S) -> core::result::Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
@@ -240,7 +271,7 @@ impl Serialize for TokenState {
 }
 
 impl<'de> Deserialize<'de> for TokenState {
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    fn deserialize<D>(deserializer: D) -> core::result::Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
@@ -251,11 +282,11 @@ impl<'de> Deserialize<'de> for TokenState {
         impl<'de> Visitor<'de> for TokenStateVisitor {
             type Value = TokenState;
 
-            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            fn expecting(&self, formatter: &mut core::fmt::Formatter) -> core::fmt::Result {
                 formatter.write_str("struct TokenState")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<TokenState, V::Error>
+            fn visit_map<V>(self, mut map: V) -> core::result::Result<TokenState, V::Error>
             where
                 V: MapAccess<'de>,
             {
@@ -297,13 +328,21 @@ impl<'de> Deserialize<'de> for TokenState {
 
 /// Token coin data for fungible tokens
 #[derive(Debug, Clone)]
+#[cfg(feature = "std")]
 pub struct TokenCoinData {
     pub coins: IndexMap<String, u64>,
 }
 
+/// Token coin data for fungible tokens
+#[derive(Debug, Clone)]
+#[cfg(not(feature = "std"))]
+pub struct TokenCoinData {
+    pub coins: IndexMap<String, u64, foldhash::fast::RandomState>,
+}
+
 // Custom serialization to match Java SDK format: [[coinId, amount], ...]
 impl Serialize for TokenCoinData {
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    fn serialize<S>(&self, serializer: S) -> core::result::Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
@@ -318,13 +357,13 @@ impl Serialize for TokenCoinData {
 }
 
 impl<'de> Deserialize<'de> for TokenCoinData {
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    fn deserialize<D>(deserializer: D) -> core::result::Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
         // Deserialize as array of [coinId, amount] tuples
         let coin_pairs: Vec<(String, String)> = Vec::deserialize(deserializer)?;
-        let mut coins = IndexMap::new();
+        let mut coins = new_index_map();
         for (coin_id, amount_str) in coin_pairs {
             let amount = amount_str.parse::<u64>()
                 .map_err(|e| serde::de::Error::custom(format!("Invalid amount: {}", e)))?;
@@ -338,7 +377,7 @@ impl TokenCoinData {
     /// Create new coin data
     pub fn new() -> Self {
         Self {
-            coins: IndexMap::new(),
+            coins: new_index_map(),
         }
     }
 
@@ -574,9 +613,7 @@ where
         Ok(())
     }
 
-    /// Verify genesis transaction with comprehensive checks
-    ///
-    /// Performs all security-critical genesis verification checks:
+    /// Performs genesis verification checks:
     /// 1. Authenticator presence
     /// 2. Transaction hash presence
     /// 3. Source state validity
@@ -604,7 +641,6 @@ where
 
         // 3. Verify authenticator signature explicitly
         // While this is also checked in inclusion proof verification, we verify it separately
-        // as an explicit security check (defense in depth)
         //
         // NOTE: The transaction hash is a DataHash in imprint format: [algorithm (2 bytes)][hash (32 bytes)]
         // The signature is over the hash part only (getData() in Java SDK), not the full imprint.
@@ -825,8 +861,8 @@ where
     ) -> Result<crate::types::address::GenericAddress> {
         // Build a map from proxy addresses to nametag tokens
         // Include BOTH token nametags and transaction nametags
-        let mut nametag_map: IndexMap<DataHash, &Token<crate::types::transaction::NametagMintTransactionData>> =
-            IndexMap::new();
+        let mut nametag_map: IndexMap<DataHash, &Token<crate::types::transaction::NametagMintTransactionData>, _> =
+            new_index_map();
 
         // Add token-level nametags
         for nametag in &self.nametags {
@@ -883,8 +919,8 @@ where
     ) -> Result<crate::types::address::GenericAddress> {
         // Build a map from proxy addresses to nametag tokens
         // For each nametag, the proxy address is created from the nametag's token ID
-        let mut nametag_map: IndexMap<DataHash, &Token<crate::types::transaction::NametagMintTransactionData>> =
-            IndexMap::new();
+        let mut nametag_map: IndexMap<DataHash, &Token<crate::types::transaction::NametagMintTransactionData>, _> =
+            new_index_map();
 
         for nametag in &self.nametags {
             // Get the nametag token's ID (computed from genesis hash)
@@ -913,10 +949,10 @@ where
     ///
     /// This is the low-level resolution method that performs the actual address resolution
     /// using a pre-built nametag map. It handles iterative resolution and circular reference detection.
-    fn resolve_proxy_address_from_map(
+    fn resolve_proxy_address_from_map<S: core::hash::BuildHasher>(
         &self,
         address: &crate::types::address::GenericAddress,
-        nametag_map: &IndexMap<DataHash, &Token<crate::types::transaction::NametagMintTransactionData>>,
+        nametag_map: &IndexMap<DataHash, &Token<crate::types::transaction::NametagMintTransactionData>, S>,
     ) -> Result<crate::types::address::GenericAddress> {
         // Iteratively resolve the address until we reach a direct address
         let mut current_address = address.clone();

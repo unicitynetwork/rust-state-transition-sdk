@@ -1,8 +1,12 @@
+extern crate alloc;
+
 use crate::crypto::sha256_all;
 use crate::error::{Result, SdkError};
+use crate::prelude::*;
+use crate::smt::db::{Database, MemoryDB};
 use crate::types::primitives::DataHash;
 use num_bigint::BigInt;
-use std::collections::HashMap;
+use alloc::collections::BTreeMap as HashMap;
 
 /// Node in the Sparse Merkle Sum Tree
 #[derive(Debug, Clone)]

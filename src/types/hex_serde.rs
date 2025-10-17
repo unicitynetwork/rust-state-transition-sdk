@@ -1,8 +1,9 @@
 /// Helper module for serializing Vec<u8> as hex strings (without 0x prefix)
 /// Compatible with Java SDK format
+use crate::prelude::*;
 use serde::{Deserialize, Deserializer, Serializer};
 
-pub fn serialize<S>(bytes: &Vec<u8>, serializer: S) -> Result<S::Ok, S::Error>
+pub fn serialize<S>(bytes: &Vec<u8>, serializer: S) -> core::result::Result<S::Ok, S::Error>
 where
     S: Serializer,
 {
@@ -19,9 +20,10 @@ where
 
 /// For Option<Vec<u8>> fields
 pub mod option {
+    use super::*;
     use serde::{Deserialize, Deserializer, Serializer};
 
-    pub fn serialize<S>(bytes: &Option<Vec<u8>>, serializer: S) -> Result<S::Ok, S::Error>
+    pub fn serialize<S>(bytes: &Option<Vec<u8>>, serializer: S) -> core::result::Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
@@ -31,7 +33,7 @@ pub mod option {
         }
     }
 
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<Vec<u8>>, D::Error>
+    pub fn deserialize<'de, D>(deserializer: D) -> core::result::Result<Option<Vec<u8>>, D::Error>
     where
         D: Deserializer<'de>,
     {

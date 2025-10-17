@@ -1,3 +1,4 @@
+#![cfg(feature = "std")]
 pub mod aggregator;
 pub mod jsonrpc;
 pub mod state_transition;

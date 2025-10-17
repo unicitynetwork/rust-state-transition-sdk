@@ -1,6 +1,7 @@
 use crate::error::{Result, SdkError};
+use crate::prelude::*;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use std::fmt;
+use core::fmt;
 
 /// SHA256 algorithm identifier
 pub const SHA256_ALGORITHM_ID: [u8; 2] = [0x00, 0x00];
@@ -74,7 +75,7 @@ impl fmt::Display for DataHash {
 }
 
 impl Serialize for DataHash {
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    fn serialize<S>(&self, serializer: S) -> core::result::Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
@@ -89,7 +90,7 @@ impl Serialize for DataHash {
 }
 
 impl<'de> Deserialize<'de> for DataHash {
-    fn deserialize<D>(deserializer: D) -> std::result::Result<DataHash, D::Error>
+    fn deserialize<D>(deserializer: D) -> core::result::Result<DataHash, D::Error>
     where
         D: Deserializer<'de>,
     {
@@ -147,7 +148,7 @@ impl Signature {
 }
 
 impl Serialize for Signature {
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    fn serialize<S>(&self, serializer: S) -> core::result::Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
@@ -162,7 +163,7 @@ impl Serialize for Signature {
 }
 
 impl<'de> Deserialize<'de> for Signature {
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Signature, D::Error>
+    fn deserialize<D>(deserializer: D) -> core::result::Result<Signature, D::Error>
     where
         D: Deserializer<'de>,
     {
@@ -213,7 +214,7 @@ impl PublicKey {
 }
 
 impl Serialize for PublicKey {
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    fn serialize<S>(&self, serializer: S) -> core::result::Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
@@ -228,7 +229,7 @@ impl Serialize for PublicKey {
 }
 
 impl<'de> Deserialize<'de> for PublicKey {
-    fn deserialize<D>(deserializer: D) -> std::result::Result<PublicKey, D::Error>
+    fn deserialize<D>(deserializer: D) -> core::result::Result<PublicKey, D::Error>
     where
         D: Deserializer<'de>,
     {
@@ -282,7 +283,7 @@ impl RequestId {
 }
 
 impl Serialize for RequestId {
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    fn serialize<S>(&self, serializer: S) -> core::result::Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
@@ -291,7 +292,7 @@ impl Serialize for RequestId {
 }
 
 impl<'de> Deserialize<'de> for RequestId {
-    fn deserialize<D>(deserializer: D) -> std::result::Result<RequestId, D::Error>
+    fn deserialize<D>(deserializer: D) -> core::result::Result<RequestId, D::Error>
     where
         D: Deserializer<'de>,
     {

@@ -1,3 +1,4 @@
+#![cfg(feature = "std")]
 use crate::error::{Result, SdkError};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

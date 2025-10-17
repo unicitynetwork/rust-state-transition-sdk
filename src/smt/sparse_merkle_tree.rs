@@ -1,9 +1,13 @@
 use crate::crypto::sha256_all;
+extern crate alloc;
+
 use crate::error::{Result, SdkError};
+use crate::prelude::*;
+use crate::smt::db::{Database};
 use crate::types::primitives::DataHash;
 use num_bigint::BigInt;
-use num_traits::{One, Zero};
-use std::collections::HashMap;
+use num_traits::{Zero, One};
+use alloc::collections::BTreeMap as HashMap;
 
 /// Node in the Sparse Merkle Tree
 #[derive(Debug, Clone)]

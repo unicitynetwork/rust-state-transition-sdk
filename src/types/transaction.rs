@@ -1,4 +1,5 @@
 use crate::error::{Result, SdkError};
+use crate::prelude::*;
 use crate::types::primitives::DataHash;
 use crate::types::token::{TokenId, TokenState, TokenType};
 use serde::{Deserialize, Serialize};
@@ -444,7 +445,7 @@ impl TransactionDataTrait for NametagMintTransactionData {
         // This is a placeholder - in practice, nametags might not have explicit recipients
         self.recipient.as_ref().unwrap_or_else(|| {
             // Return a dummy address - this shouldn't be called in normal operation
-            static DUMMY: std::sync::OnceLock<crate::types::address::GenericAddress> = std::sync::OnceLock::new();
+            static DUMMY: once_cell::sync::OnceCell<crate::types::address::GenericAddress> = once_cell::sync::OnceCell::new();
             DUMMY.get_or_init(|| {
                 crate::types::address::GenericAddress::Direct(
                     crate::types::address::DirectAddress::new(DataHash::sha256(vec![0]))

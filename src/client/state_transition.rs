@@ -1,3 +1,4 @@
+#![cfg(feature = "std")]
 use crate::client::aggregator::{AggregatorClient, InclusionProofUtils};
 use crate::crypto::SigningService;
 use crate::error::{Result, SdkError};
@@ -190,8 +191,8 @@ impl StateTransitionClient {
 
         // Generate a random token ID for the nametag
         let mut token_id_bytes = [0u8; 32];
-        use rand::RngCore;
-        rand::thread_rng().fill_bytes(&mut token_id_bytes);
+        use rand::{thread_rng, RngCore};
+        thread_rng().fill_bytes(&mut token_id_bytes);
         let token_id = TokenId::new(token_id_bytes);
 
         // Create recipient address from target state (predicate hash only, not including data)

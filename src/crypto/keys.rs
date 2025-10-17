@@ -1,4 +1,5 @@
 use crate::error::{Result, SdkError};
+use crate::prelude::*;
 use crate::types::primitives::PublicKey;
 use secp256k1::{Secp256k1, SecretKey};
 
@@ -10,6 +11,7 @@ pub struct KeyPair {
 
 impl KeyPair {
     /// Generate a new random key pair
+    #[cfg(feature = "rand")]
     pub fn generate() -> Result<Self> {
         use secp256k1::rand;
         let secp = Secp256k1::new();
@@ -133,10 +135,12 @@ pub fn derive_child_key(parent: &SecretKey, index: u32) -> Result<SecretKey> {
 }
 
 /// Simple key storage interface (for testing/demo purposes)
+#[cfg(feature = "std")]
 pub struct KeyStore {
     keys: std::collections::HashMap<String, KeyPair>,
 }
 
+#[cfg(feature = "std")]
 impl KeyStore {
     /// Create a new key store
     pub fn new() -> Self {
@@ -161,6 +165,7 @@ impl KeyStore {
     }
 
     /// Generate and store a new key pair
+    #[cfg(feature = "rand")]
     pub fn generate_and_store(&mut self, alias: &str) -> Result<&KeyPair> {
         let key_pair = KeyPair::generate()?;
         self.keys.insert(alias.to_string(), key_pair);
@@ -175,6 +180,7 @@ impl KeyStore {
     }
 }
 
+#[cfg(feature = "std")]
 impl Default for KeyStore {
     fn default() -> Self {
         Self::new()

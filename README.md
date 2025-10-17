@@ -377,22 +377,6 @@ cargo run --example token_split
 cargo run --example escrow_swap
 ```
 
-## Project Structure
-
-```
-unicity-sdk/
-├── src/
-│   ├── client/          # Aggregator and state transition clients
-│   ├── crypto/          # Cryptographic operations
-│   ├── smt/            # Sparse Merkle Tree implementations
-│   ├── types/          # Core data types
-│   ├── error.rs        # Error types
-│   └── lib.rs          # Library entry point
-├── tests/
-│   └── e2e_test.rs     # Integration tests
-├── examples/           # Usage examples
-└── Cargo.toml          # Dependencies
-```
 
 ## Key Types
 

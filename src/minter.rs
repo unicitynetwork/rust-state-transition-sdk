@@ -2,6 +2,8 @@ use crate::error::{Result, SdkError};
 use crate::types::primitives::PublicKey;
 use secp256k1::{SecretKey, Secp256k1};
 use sha2::{Digest, Sha256};
+use crate::prelude::*;
+
 
 /// Universal minter secret - "I_AM_UNIVERSAL_MINTER_FOR_" in hex
 pub const UNIVERSAL_MINTER_SECRET: &str = "495f414d5f554e4956455253414c5f4d494e5445525f464f525f";

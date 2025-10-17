@@ -1,6 +1,12 @@
-use crate::error::{Result, SdkError};
 use crate::crypto::sha256;
+use crate::error::{Result, SdkError};
+use crate::prelude::*;
 use serde::{Deserialize, Serialize};
+
+#[cfg(not(feature = "std"))]
+use alloc::collections::BTreeMap as HashMap;
+
+#[cfg(feature = "std")]
 use std::collections::HashMap;
 
 /// Root trust base for verifying certificates and inclusion proofs
@@ -506,9 +512,10 @@ impl RootTrustBase {
 
 // Helper module for hex serialization
 mod hex_opt {
+    use super::*;
     use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-    pub fn serialize<S>(value: &Option<Vec<u8>>, serializer: S) -> Result<S::Ok, S::Error>
+    pub fn serialize<S>(value: &Option<Vec<u8>>, serializer: S) -> core::result::Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
@@ -521,7 +528,7 @@ mod hex_opt {
         }
     }
 
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<Vec<u8>>, D::Error>
+    pub fn deserialize<'de, D>(deserializer: D) -> core::result::Result<Option<Vec<u8>>, D::Error>
     where
         D: Deserializer<'de>,
     {
