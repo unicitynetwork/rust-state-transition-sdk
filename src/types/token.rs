@@ -6,6 +6,12 @@ use crate::types::transaction::{Transaction, TransactionDataTrait};
 use serde::{Deserialize, Serialize};
 use indexmap::IndexMap;
 
+#[cfg(not(feature = "std"))]
+use alloc::collections::BTreeMap as HashMap;
+
+#[cfg(feature = "std")]
+use std::collections::HashMap;
+
 /// Helper to create an IndexMap with a default hasher for both std and no_std
 #[cfg(feature = "std")]
 fn new_index_map<K, V>() -> IndexMap<K, V>
@@ -490,43 +496,13 @@ where
         self.transactions.last()
     }
 
-    /// Validate token consistency
-    ///
-    /// **SECURITY WARNING**: This method is incomplete and does NOT perform proper verification.
-    /// It only does basic structural validation. Use `verify()` for security-critical validation.
-    pub fn validate(&self) -> Result<()> {
-        // NOTE: This performs only basic structural validation
-        // See verify_with_trust_base() for comprehensive cryptographic verification
-        self.genesis.validate()?;
 
-        // Validate all transfer transactions
-        for tx in &self.transactions {
-            tx.validate()?;
-        }
-
-        // Validate nametags
-        for nametag in &self.nametags {
-            nametag.validate()?;
-        }
-
-        Ok(())
-    }
-
-    /// Verify the complete token state against a trust base
-    ///
-    /// This is the comprehensive security verification that should be used for all
-    /// security-critical operations. It verifies:
+    /// Verify the complete token state against a trust base:
     /// - Genesis transaction with inclusion proof and certificate
     /// - Complete cryptographic chain from genesis to current transaction
     /// - Each transaction's state transition is valid
     /// - Current token state is consistent with transaction history
     /// - All nametags
-    ///
-    /// The verification chain ensures:
-    /// 1. Each transaction is cryptographically signed and included in a block (via inclusion proof)
-    /// 2. Each transaction's source state matches the previous transaction's target state
-    /// 3. The authenticator in each transaction proves authorization
-    /// 4. The current state matches the last transaction's result
     ///
     /// Based on Java SDK Token.verify() at java-state-transition-sdk/src/main/java/org/unicitylabs/sdk/token/Token.java:251-287
     #[must_use = "Verification result must be checked - ignoring could lead to security vulnerabilities"]
@@ -534,20 +510,12 @@ where
     where
         T: TransactionDataTrait,
     {
-        // STEP 1: Verify genesis transaction
-        // This verifies the complete chain: Transaction → LeafValue → SMT Path → Root → Certificate → Trust Base
-        // Based on Java SDK Token.verifyGenesis() at java-state-transition-sdk/src/main/java/org/unicitylabs/sdk/token/Token.java:325-376
         self.verify_genesis(trust_base)?;
 
-        // STEP 2: Verify each transfer transaction in sequence
-        // This ensures the cryptographic chain from genesis to current state
-        //
-        // Based on Java SDK Token.verify() at
-        // java-state-transition-sdk/src/main/java/org/unicitylabs/sdk/token/Token.java:259-278
         for i in 0..self.transactions.len() {
             let transaction = &self.transactions[i];
 
-            // 2a. Verify the transaction itself (inclusion proof, authenticator signature, etc.)
+            // Verify the transaction itself (inclusion proof, authenticator signature, etc.)
             // This verifies: Transaction → LeafValue → SMT Path → Root → Certificate → Trust Base
             // Create request_id from transaction hash for verification
             let transaction_hash = transaction.hash().unwrap_or_else(|_| DataHash::sha256(vec![0]));
@@ -560,41 +528,15 @@ where
                 )));
             }
 
-            // 2b. Verify the transaction chain: the transaction's source state must be provably
+            // Verify the transaction chain: the transaction's source state must be
             // linked to the previous transaction's recipient
-            //
-            // This implements the Java SDK logic where we:
-            // 1. Create a "snapshot" token with the source state and previous transactions
-            // 2. Verify the transaction against that snapshot
-            // 3. Check that the source state's predicate-derived address matches the previous recipient
-            //
-            // Java SDK lines 266-277
             self.verify_transaction_chain(transaction, i, trust_base)?;
 
-            // 2c. Verify transaction-specific constraints (including predicate authorization)
-            // Note: Transaction-specific verification is handled in verify_transaction_chain
-            // TODO: Add dedicated verify_transfer_specific method if needed
-
-            // NOTE: Complete Authorization Chain
-            // ==================================
-            // At this point, we have verified:
-            // 1. The transaction is cryptographically signed (authenticator signature verified)
-            // 2. The transaction is included in a certified block (inclusion proof verified)
-            // 3. The signing key can unlock the source state's predicate (predicate authorization)
-            // 4. The source state is provably linked to the previous transaction's recipient
-            //
-            // Together, these checks form the complete security guarantee that:
-            // - The transaction is authentic and hasn't been tampered with
-            // - The transaction was created by someone authorized to transfer the token
-            // - The transaction was accepted by the network and included in a block
-            // - The token forms an unbroken chain from genesis to current state
         }
 
-        // STEP 3: Verify current token state
         // Ensure the current state is consistent with transaction history
         self.verify_current_state()?;
 
-        // STEP 4: Verify all nametags
         // Each nametag must be independently verified
         for nametag in &self.nametags {
             nametag.verify_with_trust_base(trust_base)?;
@@ -603,54 +545,25 @@ where
         Ok(())
     }
 
-    /// Performs genesis verification checks:
-    /// 1. Authenticator presence
-    /// 2. Transaction hash presence
-    /// 3. Source state validity
-    /// 4. Authenticator public key verification
-    /// 5. Authenticator signature verification
-    /// 6. Inclusion proof verification
+    /// Performs genesis verification checks via inclusion proof verification
+    ///
+    /// This verifies the complete chain: Transaction → LeafValue → SMT Path → Root → Certificate → Trust Base
+    /// The inclusion proof verification encompasses:
+    /// - Authenticator presence and signature verification
+    /// - Transaction hash validation
+    /// - Merkle tree path verification
+    /// - Certificate verification against trust base (with caching)
     ///
     /// Based on Java SDK Token.verifyGenesis() at
     /// java-state-transition-sdk/src/main/java/org/unicitylabs/sdk/token/Token.java:325-376
-    fn verify_genesis(&self, trust_base: &crate::types::bft::RootTrustBase) -> Result<()>
+    fn verify_genesis(
+        &self,
+        trust_base: &crate::types::bft::RootTrustBase
+    ) -> Result<()>
     where
         T: TransactionDataTrait,
     {
-        // 1. Check authenticator is present
-        let authenticator = self.genesis.inclusion_proof.authenticator.as_ref()
-            .ok_or_else(|| SdkError::Validation(
-                "Genesis transaction missing authenticator".to_string()
-            ))?;
-
-        // 2. Check transaction hash is present
-        let transaction_hash = self.genesis.inclusion_proof.transaction_hash.as_ref()
-            .ok_or_else(|| SdkError::Validation(
-                "Genesis transaction missing transaction hash".to_string()
-            ))?;
-
-        // 3. Verify authenticator signature explicitly
-        // While this is also checked in inclusion proof verification, we verify it separately
-        //
-        // NOTE: The transaction hash is a DataHash in imprint format: [algorithm (2 bytes)][hash (32 bytes)]
-        // The signature is over the hash part only (getData() in Java SDK), not the full imprint.
-        let transaction_hash_bytes = hex::decode(transaction_hash)
-            .map_err(|e| SdkError::Serialization(format!("Invalid transaction hash hex: {}", e)))?;
-
-        // Extract the hash data (skip algorithm prefix if present)
-        let hash_to_verify = if transaction_hash_bytes.len() == 34 {
-            &transaction_hash_bytes[2..] // Skip 2-byte algorithm prefix
-        } else {
-            &transaction_hash_bytes[..]
-        };
-
-        if !authenticator.verify(hash_to_verify)? {
-            return Err(SdkError::Validation(
-                "Genesis authenticator signature verification failed".to_string()
-            ));
-        }
-
-        // 4. Verify inclusion proof (comprehensive check)
+        // Verify inclusion proof
         // Create request_id from genesis transaction hash
         let genesis_hash = self.genesis.hash()?;
         let request_id = crate::types::primitives::RequestId::from_data_hash(genesis_hash);
@@ -684,7 +597,7 @@ where
     where
         T: crate::types::transaction::TransactionDataTrait,
     {
-        // SECURITY: Verify transaction nametags BEFORE using them for proxy resolution
+        // Verify transaction nametags BEFORE using them for proxy resolution
         // Based on Java SDK Token.verifyTransaction() at lines 294-298
         // Nametags must be verified before they're used to resolve proxy addresses
         for nametag in &transaction.data.nametags {

@@ -4,6 +4,12 @@ use crate::types::primitives::DataHash;
 use crate::types::token::{TokenId, TokenState, TokenType};
 use serde::{Deserialize, Serialize};
 
+#[cfg(not(feature = "std"))]
+use alloc::collections::BTreeMap as HashMap;
+
+#[cfg(feature = "std")]
+use std::collections::HashMap;
+
 /// Trait for transaction data types that can have recipient data hashes
 pub trait TransactionDataTrait {
     /// Get the recipient data hash if present
@@ -19,6 +25,9 @@ pub struct Transaction<T> {
     pub data: T,
     #[serde(rename = "inclusionProof")]
     pub inclusion_proof: InclusionProof,
+    /// Cached transaction hash for performance (computed lazily)
+    #[serde(skip)]
+    cached_hash: once_cell::sync::OnceCell<DataHash>,
 }
 
 impl<T> Transaction<T>
@@ -30,17 +39,20 @@ where
         Self {
             data,
             inclusion_proof,
+            cached_hash: once_cell::sync::OnceCell::new(),
         }
     }
 
-    /// Compute the hash of the transaction
+    /// Compute the hash of the transaction (cached for performance)
     pub fn hash(&self) -> Result<DataHash> {
-        use sha2::{Digest, Sha256};
-        let serialized =
-            serde_json::to_vec(&self.data).map_err(|e| SdkError::Serialization(e.to_string()))?;
-        let mut hasher = Sha256::new();
-        hasher.update(&serialized);
-        Ok(DataHash::sha256(hasher.finalize().to_vec()))
+        self.cached_hash.get_or_try_init(|| {
+            use sha2::{Digest, Sha256};
+            let serialized =
+                serde_json::to_vec(&self.data).map_err(|e| SdkError::Serialization(e.to_string()))?;
+            let mut hasher = Sha256::new();
+            hasher.update(&serialized);
+            Ok(DataHash::sha256(hasher.finalize().to_vec()))
+        }).cloned()
     }
 
     /// Validate the transaction
@@ -181,7 +193,11 @@ impl InclusionProof {
     }
 
     /// Verify the inclusion proof against a trust base
-    pub fn verify_with_trust_base(&self, _request_id: &crate::types::primitives::RequestId, trust_base: &crate::types::bft::RootTrustBase) -> Result<bool> {
+    pub fn verify_with_trust_base(
+        &self,
+        _request_id: &crate::types::primitives::RequestId,
+        trust_base: &crate::types::bft::RootTrustBase
+    ) -> Result<bool> {
         // Parse root hash from hex string
         let root_bytes = hex::decode(&self.merkle_tree_path.root)
             .map_err(|e| SdkError::Serialization(format!("Invalid root hash hex: {}", e)))?;

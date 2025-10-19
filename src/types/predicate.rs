@@ -30,11 +30,10 @@ pub trait Predicate: Send + Sync + fmt::Debug {
 
     /// Verify that a transaction is authorized according to this predicate's rules
     ///
-    /// This is a critical security method that validates token ownership and transfer authorization.
     /// Each predicate type has different verification requirements:
     /// - UnmaskedPredicate: verifies the transaction authenticator's public key matches and signature is valid
     /// - MaskedPredicate: verifies revealed nonce and that hash(public_key + nonce) matches the mask
-    /// - BurnPredicate: allows burns unconditionally
+    /// - BurnPredicate: no further transactions allowed
     ///
     /// Based on Java SDK Predicate.verify() at
     /// java-state-transition-sdk/src/main/java/org/unicitylabs/sdk/predicate/Predicate.java:42-43
