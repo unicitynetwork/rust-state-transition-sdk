@@ -128,14 +128,27 @@ impl GenericAddress {
         }
     }
 
-    /// Get the address string in Java SDK format: "SCHEME://HASH_HEX"
-    /// This matches Java SDK's getAddress() method and is used for CBOR serialization
+    /// The checksum is SHA256(imprint)[0:4]
     pub fn get_address(&self) -> String {
         let scheme = match self {
             Self::Direct(_) => "DIRECT",
             Self::Proxy(_) => "PROXY",
         };
-        let hash_hex = hex::encode(self.hash().imprint());
+
+        let imprint = self.hash().imprint();
+
+        // Compute checksum = SHA256(imprint)[0:4]
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(&imprint);
+        let checksum_full = hasher.finalize();
+        let checksum = &checksum_full[..4];
+
+        // Concatenate imprint + checksum
+        let mut hash_with_checksum = imprint.to_vec();
+        hash_with_checksum.extend_from_slice(checksum);
+
+        let hash_hex = hex::encode(&hash_with_checksum);
         format!("{}://{}", scheme, hash_hex)
     }
 }
@@ -151,12 +164,25 @@ impl Serialize for GenericAddress {
     where
         S: serde::Serializer,
     {
-        // Java SDK format: "SCHEME://HASH_HEX"
         let scheme = match self {
             Self::Direct(_) => "DIRECT",
             Self::Proxy(_) => "PROXY",
         };
-        let hash_hex = hex::encode(self.hash().imprint());
+
+        let imprint = self.hash().imprint();
+
+        // Compute checksum = SHA256(imprint)[0:4]
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(&imprint);
+        let checksum_full = hasher.finalize();
+        let checksum = &checksum_full[..4];
+
+        // Concatenate imprint + checksum
+        let mut hash_with_checksum = imprint.to_vec();
+        hash_with_checksum.extend_from_slice(checksum);
+
+        let hash_hex = hex::encode(&hash_with_checksum);
         let address_string = format!("{}://{}", scheme, hash_hex);
         serializer.serialize_str(&address_string)
     }
@@ -167,7 +193,6 @@ impl<'de> Deserialize<'de> for GenericAddress {
     where
         D: serde::Deserializer<'de>,
     {
-        // Parse Java SDK format: "SCHEME://HASH_HEX"
         let address_string = String::deserialize(deserializer)?;
 
         let parts: Vec<&str> = address_string.split("://").collect();
@@ -182,7 +207,36 @@ impl<'de> Deserialize<'de> for GenericAddress {
         let hash_hex = parts[1];
 
         let hash_bytes = hex::decode(hash_hex).map_err(serde::de::Error::custom)?;
-        let hash = DataHash::from_imprint(&hash_bytes).map_err(serde::de::Error::custom)?;
+
+        // Checksum = SHA256(imprint)[0:4]
+        if hash_bytes.len() < 4 {
+            return Err(serde::de::Error::custom(format!(
+                "Invalid address hash: too short (expected at least 4 bytes for checksum), got {} bytes",
+                hash_bytes.len()
+            )));
+        }
+
+        // Split imprint and checksum
+        let imprint_bytes = &hash_bytes[..hash_bytes.len() - 4];
+        let checksum_bytes = &hash_bytes[hash_bytes.len() - 4..];
+
+        // Verify checksum
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(imprint_bytes);
+        let computed_checksum_full = hasher.finalize();
+        let computed_checksum = &computed_checksum_full[..4];
+
+        if checksum_bytes != computed_checksum {
+            return Err(serde::de::Error::custom(format!(
+                "Invalid address checksum: expected {}, got {}",
+                hex::encode(computed_checksum),
+                hex::encode(checksum_bytes)
+            )));
+        }
+
+        // Create DataHash from imprint (without checksum)
+        let hash = DataHash::from_imprint(imprint_bytes).map_err(serde::de::Error::custom)?;
 
         match scheme {
             "DIRECT" => Ok(Self::Direct(DirectAddress::new(hash))),

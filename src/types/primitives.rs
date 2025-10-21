@@ -219,7 +219,6 @@ impl PublicKey {
 
     /// Create from k256 VerifyingKey
     pub fn from_verifying_key(key: &k256::ecdsa::VerifyingKey) -> Result<Self> {
-        use k256::elliptic_curve::sec1::ToEncodedPoint;
         let point = key.to_encoded_point(true); // compressed
         let bytes = point.as_bytes();
         if bytes.len() != 33 {

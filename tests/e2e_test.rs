@@ -1,16 +1,24 @@
 use unicity_sdk::client::{AggregatorClient, StateTransitionClient};
 use unicity_sdk::crypto::{KeyPair, TestIdentity};
+use unicity_sdk::types::bft::RootTrustBase;
 use unicity_sdk::types::commitment::{MintCommitment, TransferCommitment};
 use unicity_sdk::types::predicate::{MaskedPredicate, UnmaskedPredicate};
 use unicity_sdk::types::token::{Token, TokenState, TokenType, TokenId};
 use unicity_sdk::types::transaction::MintTransactionData;
-use unicity_sdk::types::{GenericAddress, ProxyAddress};
-use unicity_sdk::{init, Config};
+use unicity_sdk::types::GenericAddress;
+use unicity_sdk::init;
 
 /// Get the aggregator URL from environment or use test network
 fn get_aggregator_url() -> String {
     std::env::var("AGGREGATOR_URL")
         .unwrap_or_else(|_| "https://goggregator-test.unicity.network".to_string())
+}
+
+/// Load trust base for token verification
+fn load_trust_base() -> RootTrustBase {
+    let trust_base_json = include_str!("resources/trust-base.json");
+    RootTrustBase::from_json(trust_base_json)
+        .expect("Failed to load trust base")
 }
 
 #[tokio::test]
@@ -51,14 +59,21 @@ async fn test_basic_token_mint() {
     match result {
         Ok(token) => {
             println!("Successfully minted token with ID: {:?}", token.id());
-            // NOTE: Validation may fail if aggregator returns malformed data
-            if let Err(e) = token.validate() {
-                println!("Token validation failed (may be due to aggregator data): {}", e);
+
+            // Verify token with trust base
+            let trust_base = load_trust_base();
+            match token.verify_with_trust_base(&trust_base) {
+                Ok(()) => {
+                    println!("✅ Token verification with trust base succeeded");
+                }
+                Err(e) => {
+                    println!("⚠️ Token verification with trust base failed: {}", e);
+                    println!("   This is expected if the test aggregator uses different trust base");
+                }
             }
         }
         Err(e) => {
             println!("Mint failed (expected in test environment): {}", e);
-            // This is expected to fail if the test aggregator is not running
         }
     }
 }
@@ -115,6 +130,17 @@ async fn test_token_transfer_flow() {
                     let mock_proof = unicity_sdk::types::transaction::InclusionProof::new(merkle_path);
                     let mock_tx = commitment.to_transaction(mock_proof);
                     let alice_token = Token::new(alice_state, mock_tx);
+
+                    // Verify the mocked token (will likely fail due to mock proof)
+                    let trust_base = load_trust_base();
+                    match alice_token.verify_with_trust_base(&trust_base) {
+                        Ok(()) => {
+                            println!("✅ Alice's token verification succeeded");
+                        }
+                        Err(e) => {
+                            println!("⚠️ Alice's token verification failed (expected for mock proof): {}", e);
+                        }
+                    }
 
                     // Create transfer commitment
                     let transfer_result = TransferCommitment::create(
@@ -269,9 +295,17 @@ async fn test_nametag_creation() {
     {
         Ok(nametag_token) => {
             println!("Created nametag token: {}", nametag);
-            // NOTE: Validation may fail if aggregator returns malformed data
-            if let Err(e) = nametag_token.validate() {
-                println!("Nametag validation failed (may be due to aggregator data): {}", e);
+
+            // Verify nametag token with trust base
+            let trust_base = load_trust_base();
+            match nametag_token.verify_with_trust_base(&trust_base) {
+                Ok(()) => {
+                    println!("✅ Nametag token verification with trust base succeeded");
+                }
+                Err(e) => {
+                    println!("⚠️ Nametag token verification with trust base failed: {}", e);
+                    println!("   This is expected if the test aggregator uses different trust base");
+                }
             }
         }
         Err(e) => {

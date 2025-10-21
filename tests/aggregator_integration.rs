@@ -118,19 +118,16 @@ async fn test_json_payload_structure() {
     use unicity_sdk::types::commitment::Authenticator;
     use unicity_sdk::types::primitives::{DataHash, Signature};
 
-    // Create test data
     let key_pair = KeyPair::generate().expect("Failed to generate key pair");
     let public_key = key_pair.public_key().clone();
     let signature = Signature::new([0u8; 65]);
 
-    // Create proper 32-byte hash
     use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
     hasher.update(&[1, 2, 3]);
     let hash_bytes = hasher.finalize().to_vec();
     let state_hash = DataHash::sha256(hash_bytes);
 
-    // Create authenticator
     let authenticator = Authenticator::new(public_key.clone(), signature, state_hash.clone());
     let dto = AuthenticatorDto::from(&authenticator);
 

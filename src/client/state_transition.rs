@@ -85,7 +85,7 @@ impl StateTransitionClient {
         signing_key: &SigningKey,
     ) -> Result<Token<T>>
     where
-        T: Clone + serde::Serialize + for<'de> serde::Deserialize<'de>,
+        T: Clone + serde::Serialize + for<'de> serde::Deserialize<'de> + crate::types::transaction::TransactionDataTrait,
     {
         // Create and sign transfer commitment
         let commitment =

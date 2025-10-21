@@ -1,10 +1,10 @@
-use crate::prelude::*;
-
 #[cfg(feature = "std")]
 use thiserror::Error;
 
 extern crate alloc;
 use alloc::string::String;
+
+#[cfg(not(feature = "std"))]
 use core::fmt;
 
 #[cfg_attr(feature = "std", derive(Error))]

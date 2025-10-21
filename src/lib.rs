@@ -59,10 +59,13 @@
 //! ```
 
 #![cfg_attr(not(feature = "std"), no_std)]
-use crate::prelude::*;
 
 #[cfg(all(not(feature = "std"), feature = "zkvm"))]
 extern crate alloc;
+
+// Critical section implementation for zkvm
+#[cfg(all(not(feature = "std"), feature = "zkvm"))]
+mod sync;
 
 // Only include client module (and any network-related parts) in std builds
 pub mod prelude;

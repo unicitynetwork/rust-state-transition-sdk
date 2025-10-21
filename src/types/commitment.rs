@@ -210,7 +210,21 @@ impl TransferCommitment {
         signing_key: &k256::ecdsa::SigningKey,
     ) -> Result<Self>
     where
-        T: Clone + Serialize + for<'de> Deserialize<'de>,
+        T: Clone + Serialize + for<'de> Deserialize<'de> + crate::types::transaction::TransactionDataTrait,
+    {
+        Self::create_with_message(token, target_state, salt, None, signing_key)
+    }
+
+    /// Create and sign a transfer commitment with optional message (for nonce revelation)
+    pub fn create_with_message<T>(
+        token: &Token<T>,
+        target_state: crate::types::token::TokenState,
+        salt: Option<Vec<u8>>,
+        message: Option<Vec<u8>>,
+        signing_key: &k256::ecdsa::SigningKey,
+    ) -> Result<Self>
+    where
+        T: Clone + Serialize + for<'de> Deserialize<'de> + crate::types::transaction::TransactionDataTrait,
     {
         use crate::crypto::{SigningService, public_key_from_secret};
 
@@ -232,7 +246,7 @@ impl TransferCommitment {
             recipient,
             salt_vec,
             recipient_data_hash,  // SHA256 of target_state.data if present
-            None,  // message
+            message,  // nonce revelation for masked predicates
             vec![], // nametags
         );
 

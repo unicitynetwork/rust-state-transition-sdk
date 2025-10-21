@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::time::Duration;
 
-/// Submit commitment request - matches Java SDK exactly
+/// Submit commitment request - matches Java SDK
 #[derive(Debug, Serialize)]
 pub struct SubmitCommitmentRequest {
     #[serde(rename = "requestId")]
@@ -19,7 +19,7 @@ pub struct SubmitCommitmentRequest {
     pub receipt: bool,
 }
 
-/// Authenticator DTO for JSON serialization - matches Java SDK exactly
+/// Authenticator DTO for JSON serialization - matches Java SDK
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AuthenticatorDto {
     pub algorithm: String,
@@ -41,7 +41,6 @@ impl From<&Authenticator> for AuthenticatorDto {
     }
 }
 
-/// Submit commitment response
 #[derive(Debug, Deserialize)]
 pub struct SubmitCommitmentResponse {
     pub status: String,
@@ -54,13 +53,11 @@ pub struct SubmitCommitmentResponse {
 }
 
 impl SubmitCommitmentResponse {
-    /// Check if the response indicates success
     pub fn is_success(&self) -> bool {
         let status_lower = self.status.to_lowercase();
         status_lower == "success" || status_lower == "accepted"
     }
 
-    /// Get a descriptive error message
     pub fn error_message(&self) -> String {
         if let Some(err) = &self.error {
             return err.clone();
@@ -75,14 +72,12 @@ impl SubmitCommitmentResponse {
     }
 }
 
-/// Inclusion proof response wrapper
 #[derive(Debug, Deserialize)]
 pub struct GetInclusionProofResponse {
     #[serde(default, rename = "inclusionProof")]
     pub inclusion_proof: Option<InclusionProofDto>,
 }
 
-/// Inclusion proof data
 #[derive(Debug, Deserialize)]
 pub struct InclusionProofDto {
     #[serde(rename = "merkleTreePath")]
@@ -95,23 +90,19 @@ pub struct InclusionProofDto {
     pub unicity_certificate: Option<String>, // Certificate data
 }
 
-/// Merkle tree path DTO
 #[derive(Debug, Deserialize)]
 pub struct MerkleTreePathDto {
     pub root: String,
     pub steps: Vec<MerkleStepDto>,
 }
 
-/// Merkle step DTO
 #[derive(Debug, Deserialize)]
 pub struct MerkleStepDto {
-    pub branch: Vec<String>,
+    pub branch: Option<Vec<Option<String>>>,
     pub path: String,
-    pub sibling: Vec<String>,
+    pub sibling: Option<Vec<String>>,
 }
 
-
-/// Block height response
 #[derive(Debug, Deserialize)]
 pub struct BlockHeightResponse {
     #[serde(rename = "blockNumber")]
@@ -125,18 +116,15 @@ pub struct AggregatorClient {
 }
 
 impl AggregatorClient {
-    /// Create a new aggregator client
     pub fn new(url: String) -> Result<Self> {
         let transport = JsonRpcHttpTransport::new(url)?;
         Ok(Self { transport })
     }
 
-    /// Submit a commitment to the aggregator
     pub async fn submit_commitment(
         &self,
         commitment: &dyn Commitment,
     ) -> Result<SubmitCommitmentResponse> {
-        // Build request matching Java SDK structure exactly
         let request_id = hex::encode(commitment.request_id().as_data_hash().imprint());
         let transaction_hash = hex::encode(commitment.transaction_hash().imprint());
         let authenticator = AuthenticatorDto::from(commitment.authenticator());
@@ -153,7 +141,6 @@ impl AggregatorClient {
             .send_request("submit_commitment", params)
             .await?;
 
-        // Debug: Print raw response
         tracing::debug!("Raw response from aggregator: {:?}", response);
 
         let parsed: SubmitCommitmentResponse = serde_json::from_value(response).map_err(|e| SdkError::Json(e))?;
@@ -168,7 +155,6 @@ impl AggregatorClient {
         Ok(parsed)
     }
 
-    /// Submit raw commitment
     pub async fn submit_commitment_raw(
         &self,
         request_id: &RequestId,
@@ -191,7 +177,6 @@ impl AggregatorClient {
             .send_request("submit_commitment", params)
             .await?;
 
-        // Debug: Print raw response
         tracing::debug!("Raw response from aggregator: {:?}", response);
 
         let parsed: SubmitCommitmentResponse = serde_json::from_value(response).map_err(|e| SdkError::Json(e))?;
@@ -206,7 +191,6 @@ impl AggregatorClient {
         Ok(parsed)
     }
 
-    /// Get inclusion proof for a request
     pub async fn get_inclusion_proof(
         &self,
         request_id: &RequestId,
@@ -225,17 +209,26 @@ impl AggregatorClient {
         let proof_response: GetInclusionProofResponse =
             serde_json::from_value(response).map_err(|e| SdkError::Json(e))?;
 
-        // Convert the inclusion proof response to our domain model
         if let Some(inclusion_proof_dto) = proof_response.inclusion_proof {
+            // Non-inclusion proofs have NULL authenticator and transaction_hash
+            // We must reject non-inclusion proofs and keep polling
+            let is_inclusion_proof = inclusion_proof_dto.authenticator.is_some()
+                || inclusion_proof_dto.transaction_hash.is_some();
+
+            if !is_inclusion_proof {
+                tracing::debug!("Received non-inclusion proof, continuing to poll");
+                return Ok(None);
+            }
+
             use crate::types::transaction::{MerkleTreePath, MerkleTreePathStep};
 
             // Convert MerkleTreePathDto to MerkleTreePath
             let steps: Vec<MerkleTreePathStep> = inclusion_proof_dto.merkle_tree_path.steps
                 .into_iter()
                 .map(|step| MerkleTreePathStep {
-                    path: serde_json::Value::String(step.path),
+                    path: step.path,
                     sibling: step.sibling,
-                    branch: step.branch.into_iter().map(Some).collect(),
+                    branch: step.branch,
                 })
                 .collect();
 
@@ -244,18 +237,32 @@ impl AggregatorClient {
                 steps,
             };
 
-            // Parse certificate if present
             let certificate = if let Some(cert_hex) = inclusion_proof_dto.unicity_certificate {
                 Some(hex::decode(cert_hex)?)
             } else {
                 None
             };
 
-            if let Some(cert) = certificate {
-                Ok(Some(InclusionProof::with_certificate(merkle_tree_path, cert)))
+            let authenticator = if let Some(auth_value) = inclusion_proof_dto.authenticator {
+                let auth: AuthenticatorDto = serde_json::from_value(auth_value)
+                    .map_err(|e| SdkError::Json(e))?;
+
+                Some(crate::types::transaction::Authenticator::new(
+                    auth.algorithm,
+                    hex::decode(&auth.public_key)?,
+                    hex::decode(&auth.signature)?,
+                    crate::types::primitives::DataHash::from_imprint(&hex::decode(&auth.state_hash)?)?,
+                ))
             } else {
-                Ok(Some(InclusionProof::new(merkle_tree_path)))
-            }
+                None
+            };
+
+            let mut proof = InclusionProof::new(merkle_tree_path);
+            proof.authenticator = authenticator;
+            proof.transaction_hash = inclusion_proof_dto.transaction_hash;
+            proof.unicity_certificate = certificate;
+
+            Ok(Some(proof))
         } else {
             Ok(None)
         }
@@ -278,11 +285,9 @@ impl AggregatorClient {
             match self.get_inclusion_proof(request_id).await {
                 Ok(Some(proof)) => return Ok(proof),
                 Ok(None) => {
-                    // No proof yet, continue polling
                     tokio::time::sleep(poll_interval).await;
                 }
                 Err(e) => {
-                    // Log error and retry
                     tracing::debug!("Error getting inclusion proof: {}", e);
                     tokio::time::sleep(poll_interval).await;
                 }
@@ -290,7 +295,6 @@ impl AggregatorClient {
         }
     }
 
-    /// Get current block height
     pub async fn get_block_height(&self) -> Result<u64> {
         let response = self
             .transport
@@ -306,7 +310,6 @@ impl AggregatorClient {
             .map_err(|e| SdkError::InvalidParameter(format!("Invalid block number: {}", e)))
     }
 
-    /// Health check
     pub async fn health_check(&self) -> Result<bool> {
         match self.get_block_height().await {
             Ok(_) => Ok(true),
@@ -314,13 +317,12 @@ impl AggregatorClient {
         }
     }
 
-    /// Get the aggregator URL
     pub fn url(&self) -> &str {
         self.transport.url()
     }
 }
 
-/// Inclusion proof utilities
+
 pub struct InclusionProofUtils;
 
 impl InclusionProofUtils {

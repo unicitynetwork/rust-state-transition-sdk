@@ -3,7 +3,6 @@ extern crate alloc;
 
 use crate::error::{Result, SdkError};
 use crate::prelude::*;
-use crate::smt::db::{Database};
 use crate::types::primitives::DataHash;
 use num_bigint::BigInt;
 use num_traits::{Zero, One};

@@ -71,9 +71,13 @@ async fn test_real_mint_and_transfers() {
         Some(b"Alice's token - initial mint".to_vec())
     ).unwrap();
 
-    // Create recipient address from alice state hash
-    let alice_state_hash = alice_state.hash().unwrap();
-    let alice_recipient = unicity_sdk::types::address::GenericAddress::direct(alice_state_hash);
+    // Create recipient address from alice state hash (predicate hash only)
+    let alice_address_hash = alice_state.address_hash().unwrap();
+    let alice_recipient = unicity_sdk::types::address::GenericAddress::direct(alice_address_hash);
+
+    // Compute recipient_data_hash - REQUIRED for security when state has data
+    // This commits to the state data in the transaction
+    let recipient_data_hash = alice_state.data_hash();
 
     // Create mint transaction data
     let mint_data = MintTransactionData::new(
@@ -83,7 +87,7 @@ async fn test_real_mint_and_transfers() {
         None,  // coin_data
         alice_recipient,  // recipient address
         vec![0xAA, 0xBB, 0xCC, 0xDD, 0xEE],  // 5-byte salt (not Option)
-        None,  // recipient_data_hash
+        recipient_data_hash,  // SHA256 hash of alice_state.data (security requirement)
         None,  // reason (no split mint reason)
     );
 
@@ -122,7 +126,7 @@ async fn test_real_mint_and_transfers() {
     };
 
     // Verify inclusion proof with trust base
-    match mint_proof.verify_with_trust_base(&mint_commitment.request_id, &trust_base) {
+    match mint_proof.verify_with_trust_base(&mint_commitment.request_id, &trust_base, &mint_commitment.transaction_hash) {
         Ok(verified) => println!("   ✅ Inclusion proof verified with trust base: {}", verified),
         Err(e) => println!("   ⚠️ Trust base verification not fully implemented: {:?}", e),
     }
@@ -133,6 +137,21 @@ async fn test_real_mint_and_transfers() {
 
     println!("   ✅ Token successfully minted to Alice!");
     println!("      Token ID: {}", token.id().unwrap());
+
+    // Verify the minted token with trust base
+    println!("   🔐 Verifying minted token with trust base...");
+    match token.verify_with_trust_base(&trust_base) {
+        Ok(()) => {
+            println!("   ✅ Minted token cryptographic verification PASSED");
+            println!("      - Genesis transaction signature verified");
+            println!("      - Inclusion proof verified against trust base");
+            println!("      - Token state matches genesis predicate");
+        }
+        Err(e) => {
+            println!("   ❌ Token verification FAILED: {}", e);
+            panic!("Token verification must pass for valid tokens");
+        }
+    }
 
     // ========================================
     // Step 2: Alice transfers to Bob
@@ -146,11 +165,13 @@ async fn test_real_mint_and_transfers() {
     ).unwrap();
 
     // Create transfer commitment from Alice to Bob
+    // Alice has a masked predicate, so we need to reveal the nonce in the transfer
     let salt_alice_to_bob = vec![0x11, 0x22, 0x33, 0x44, 0x55];
-    let transfer_commitment_1 = TransferCommitment::create(
+    let transfer_commitment_1 = TransferCommitment::create_with_message(
         &token,
         bob_state.clone(),
         Some(salt_alice_to_bob.clone()),
+        Some(alice_nonce.to_vec()),  // Reveal nonce for masked predicate verification
         alice_key.secret_key(),
     ).expect("Failed to create transfer commitment Alice->Bob");
 
@@ -184,12 +205,40 @@ async fn test_real_mint_and_transfers() {
         }
     };
 
+    // Add authenticator and transaction hash to the inclusion proof (from the commitment we signed)
+    let mut transfer_proof_1_with_auth = transfer_proof_1;
+    transfer_proof_1_with_auth.authenticator = Some(
+        unicity_sdk::types::transaction::Authenticator::new(
+            transfer_commitment_1.authenticator.algorithm.clone(),
+            transfer_commitment_1.authenticator.public_key.as_bytes().to_vec(),
+            transfer_commitment_1.authenticator.signature.as_bytes().to_vec(),
+            transfer_commitment_1.authenticator.state_hash.clone(),
+        )
+    );
+    transfer_proof_1_with_auth.transaction_hash = Some(hex::encode(transfer_commitment_1.transaction_hash.imprint()));
+
     // Update token with transfer transaction
-    let transfer_transaction_1 = transfer_commitment_1.to_transaction(transfer_proof_1);
+    let transfer_transaction_1 = transfer_commitment_1.to_transaction(transfer_proof_1_with_auth);
     token.add_transaction(transfer_transaction_1);
     token.state = bob_state.clone();
 
     println!("   ✅ Token successfully transferred from Alice to Bob!");
+
+    // Verify the token after first transfer
+    println!("   🔐 Verifying token after transfer with trust base...");
+    match token.verify_with_trust_base(&trust_base) {
+        Ok(()) => {
+            println!("   ✅ Token verification after transfer PASSED");
+            println!("      - All transaction signatures verified");
+            println!("      - Transaction chain is valid (Alice -> Bob)");
+            println!("      - Inclusion proofs verified against trust base");
+            println!("      - Nonce revealed correctly for masked predicate");
+        }
+        Err(e) => {
+            println!("   ❌ Token verification FAILED: {}", e);
+            panic!("Token verification must pass after valid transfer");
+        }
+    }
 
     // ========================================
     // Step 3: Bob transfers to Carol
@@ -241,12 +290,41 @@ async fn test_real_mint_and_transfers() {
         }
     };
 
+    // Add authenticator and transaction hash to the inclusion proof (from the commitment we signed)
+    let mut transfer_proof_2_with_auth = transfer_proof_2;
+    transfer_proof_2_with_auth.authenticator = Some(
+        unicity_sdk::types::transaction::Authenticator::new(
+            transfer_commitment_2.authenticator.algorithm.clone(),
+            transfer_commitment_2.authenticator.public_key.as_bytes().to_vec(),
+            transfer_commitment_2.authenticator.signature.as_bytes().to_vec(),
+            transfer_commitment_2.authenticator.state_hash.clone(),
+        )
+    );
+    transfer_proof_2_with_auth.transaction_hash = Some(hex::encode(transfer_commitment_2.transaction_hash.imprint()));
+
     // Update token with second transfer transaction
-    let transfer_transaction_2 = transfer_commitment_2.to_transaction(transfer_proof_2);
+    let transfer_transaction_2 = transfer_commitment_2.to_transaction(transfer_proof_2_with_auth);
     token.add_transaction(transfer_transaction_2);
     token.state = carol_state.clone();
 
     println!("   ✅ Token successfully transferred from Bob to Carol!");
+
+    // Verify the complete token with all transactions
+    println!("   🔐 Verifying complete token with trust base...");
+    match token.verify_with_trust_base(&trust_base) {
+        Ok(()) => {
+            println!("   ✅ FULL TOKEN VERIFICATION PASSED");
+            println!("      - Genesis signature verified");
+            println!("      - All {} transfer signatures verified", token.transactions.len());
+            println!("      - Complete transaction chain validated (Alice -> Bob -> Carol)");
+            println!("      - All inclusion proofs verified against trust base");
+            println!("      - Cryptographic chain is complete and valid");
+        }
+        Err(e) => {
+            println!("   ❌ Token verification FAILED: {}", e);
+            panic!("Complete token verification must pass");
+        }
+    }
 
     // ========================================
     // Final verification

@@ -6,12 +6,6 @@ use crate::types::transaction::{Transaction, TransactionDataTrait};
 use serde::{Deserialize, Serialize};
 use indexmap::IndexMap;
 
-#[cfg(not(feature = "std"))]
-use alloc::collections::BTreeMap as HashMap;
-
-#[cfg(feature = "std")]
-use std::collections::HashMap;
-
 /// Helper to create an IndexMap with a default hasher for both std and no_std
 #[cfg(feature = "std")]
 fn new_index_map<K, V>() -> IndexMap<K, V>
@@ -244,6 +238,64 @@ impl TokenState {
             DataHash::sha256(hasher.finalize().to_vec())
         })
     }
+
+    /// Serialize to CBOR for transfer transactions (Java SDK format)
+    /// Format: [predicate_array, data_or_null]
+    pub fn to_cbor_for_transfer(&self) -> Result<Vec<u8>> {
+        use ciborium::Value;
+
+        // Get the transformed predicate CBOR
+        let predicate_cbor = if let Some(ref raw) = self.unlock_predicate.raw_cbor {
+            // Use the transformed CBOR from JSON deserialization
+            let pred_value: Value = ciborium::de::from_reader(&raw[..])
+                .map_err(|e| SdkError::Serialization(format!("Failed to decode predicate CBOR: {}", e)))?;
+            pred_value
+        } else {
+            // Fallback: create CBOR from scratch (for tokens created in Rust)
+            // Java SDK format: [engine_ordinal, encode_int, parameters_cbor_value]
+            // engine_ordinal: 0 for EMBEDDED engine
+            // encode_int: predicate type byte
+            // parameters_cbor_value: CBOR-decoded parameters as Value
+
+            let encode_byte = self.unlock_predicate.predicate_type as u8;
+
+            // Create parameters as CBOR Value based on predicate type
+            let params_value = match self.unlock_predicate.predicate_type {
+                crate::types::predicate::PredicateType::Unmasked => {
+                    // UnmaskedPredicate: data is the 33-byte public key
+                    Value::Bytes(self.unlock_predicate.data.clone())
+                },
+                crate::types::predicate::PredicateType::Masked |
+                crate::types::predicate::PredicateType::Burn => {
+                    // MaskedPredicate/BurnPredicate: data is the 32-byte hash
+                    Value::Bytes(self.unlock_predicate.data.clone())
+                },
+            };
+
+            // Create the transformed array: [engine_ordinal, encode_int, parameters]
+            Value::Array(vec![
+                Value::Integer(0_u8.into()), // EMBEDDED engine
+                Value::Integer(encode_byte.into()),
+                params_value,
+            ])
+        };
+
+        // Create TokenState as [predicate, data]
+        let data_value = if let Some(ref d) = self.data {
+            Value::Bytes(d.clone())
+        } else {
+            Value::Null  // CBOR null (0xf6)
+        };
+
+        let token_state_array = Value::Array(vec![predicate_cbor, data_value]);
+
+        // Serialize to CBOR
+        let mut cbor_bytes = Vec::new();
+        ciborium::ser::into_writer(&token_state_array, &mut cbor_bytes)
+            .map_err(|e| SdkError::Serialization(format!("Failed to encode TokenState to CBOR: {}", e)))?;
+
+        Ok(cbor_bytes)
+    }
 }
 
 // Custom serialization for TokenState to match Java SDK format
@@ -402,6 +454,8 @@ impl TokenCoinData {
     /// Matches Java SDK TokenCoinData.toCbor() method
     pub fn to_cbor_value(&self) -> crate::error::Result<ciborium::Value> {
         use ciborium::Value;
+        use num_bigint::BigUint;
+        use num_traits::Zero;
 
         let mut coin_pairs = vec![];
         for (coin_id, amount) in &self.coins {
@@ -409,9 +463,13 @@ impl TokenCoinData {
             let coin_id_bytes = hex::decode(coin_id)
                 .map_err(|e| crate::error::SdkError::Serialization(format!("Invalid coin ID hex: {}", e)))?;
 
-            // Convert amount to string and then to bytes
-            let amount_string = amount.to_string();
-            let amount_bytes = amount_string.into_bytes();
+            // Encode amount as BigInteger (unsigned bytes) matching Java's BigIntegerConverter.encode()
+            let amount_bigint = BigUint::from(*amount);
+            let amount_bytes = if amount_bigint.is_zero() {
+                vec![]  // Empty for zero
+            } else {
+                amount_bigint.to_bytes_be()  // Big-endian unsigned bytes
+            };
 
             // Create [coinId, amount] pair
             coin_pairs.push(Value::Array(vec![
@@ -462,12 +520,6 @@ where
         }
     }
 
-    /// Get the token ID
-    pub fn id(&self) -> Result<TokenId> {
-        let genesis_hash = self.genesis.hash()?;
-        Ok(TokenId::from_genesis_hash(&genesis_hash))
-    }
-
     /// Add a transfer transaction
     pub fn add_transaction(
         &mut self,
@@ -495,11 +547,23 @@ where
     ) -> Option<&Transaction<crate::types::transaction::TransferTransactionData>> {
         self.transactions.last()
     }
+}
+
+// Separate impl block for methods that require TransactionDataTrait
+impl<T> Token<T>
+where
+    T: Clone + Serialize + for<'de> Deserialize<'de> + TransactionDataTrait,
+{
+    /// Get the token ID
+    pub fn id(&self) -> Result<TokenId> {
+        let genesis_hash = self.genesis.hash()?;
+        Ok(TokenId::from_genesis_hash(&genesis_hash))
+    }
 
 
-    /// Verify the complete token state against a trust base:
+    /// Verify the token state against a trust base:
     /// - Genesis transaction with inclusion proof and certificate
-    /// - Complete cryptographic chain from genesis to current transaction
+    /// - Cryptographic chain from genesis to current transaction
     /// - Each transaction's state transition is valid
     /// - Current token state is consistent with transaction history
     /// - All nametags
@@ -516,12 +580,30 @@ where
             let transaction = &self.transactions[i];
 
             // Verify the transaction itself (inclusion proof, authenticator signature, etc.)
-            // This verifies: Transaction → LeafValue → SMT Path → Root → Certificate → Trust Base
-            // Create request_id from transaction hash for verification
-            let transaction_hash = transaction.hash().unwrap_or_else(|_| DataHash::sha256(vec![0]));
-            let request_id = crate::types::primitives::RequestId::from_data_hash(transaction_hash);
+            // Compute actual transaction hash from the transaction data
+            let transaction_hash = transaction.data.hash()?;
 
-            if !transaction.inclusion_proof.verify_with_trust_base(&request_id, trust_base)? {
+            // Compute request ID from authenticator (public key + state hash)
+            let request_id = if let Some(ref auth) = transaction.inclusion_proof.authenticator {
+                // Convert public key bytes to PublicKey
+                if auth.public_key.len() != 33 {
+                    return Err(SdkError::Validation(format!(
+                        "Transaction at index {}: invalid public key length",
+                        i
+                    )));
+                }
+                let mut pk_bytes = [0u8; 33];
+                pk_bytes.copy_from_slice(&auth.public_key);
+                let public_key = crate::types::primitives::PublicKey::new(pk_bytes)?;
+                crate::types::primitives::RequestId::new(&public_key, &auth.state_hash)
+            } else {
+                return Err(SdkError::Validation(format!(
+                    "Transaction at index {}: inclusion proof missing authenticator",
+                    i
+                )));
+            };
+
+            if !transaction.inclusion_proof.verify_with_trust_base(&request_id, trust_base, &transaction_hash)? {
                 return Err(SdkError::Validation(format!(
                     "Transaction at index {}: inclusion proof verification failed",
                     i
@@ -556,19 +638,36 @@ where
     ///
     /// Based on Java SDK Token.verifyGenesis() at
     /// java-state-transition-sdk/src/main/java/org/unicitylabs/sdk/token/Token.java:325-376
-    fn verify_genesis(
+    pub fn verify_genesis(
         &self,
         trust_base: &crate::types::bft::RootTrustBase
     ) -> Result<()>
     where
         T: TransactionDataTrait,
     {
-        // Verify inclusion proof
-        // Create request_id from genesis transaction hash
-        let genesis_hash = self.genesis.hash()?;
-        let request_id = crate::types::primitives::RequestId::from_data_hash(genesis_hash);
+        // Compute actual genesis transaction hash from the transaction data
+        let genesis_hash = self.genesis.data.hash()?;
 
-        if !self.genesis.inclusion_proof.verify_with_trust_base(&request_id, trust_base)? {
+        // Compute request ID from authenticator (public key + state hash)
+        // The request ID is NOT the transaction hash - it's computed from the authenticator
+        let request_id = if let Some(ref auth) = self.genesis.inclusion_proof.authenticator {
+            // Convert public key bytes to PublicKey
+            if auth.public_key.len() != 33 {
+                return Err(SdkError::Validation(
+                    "Genesis: invalid public key length".to_string()
+                ));
+            }
+            let mut pk_bytes = [0u8; 33];
+            pk_bytes.copy_from_slice(&auth.public_key);
+            let public_key = crate::types::primitives::PublicKey::new(pk_bytes)?;
+            crate::types::primitives::RequestId::new(&public_key, &auth.state_hash)
+        } else {
+            return Err(SdkError::Validation(
+                "Genesis inclusion proof missing authenticator".to_string()
+            ));
+        };
+
+        if !self.genesis.inclusion_proof.verify_with_trust_base(&request_id, trust_base, &genesis_hash)? {
             return Err(SdkError::Validation(
                 "Genesis inclusion proof verification failed".to_string()
             ));
@@ -663,16 +762,12 @@ where
                 }
             }
             (Some(_), None) => {
-                // Hash present but no data - mismatch
                 return Err(SdkError::Validation(format!(
                     "Transaction chain broken at index {}: previous transaction has recipient_data_hash but source state has no data",
                     transaction_index
                 )));
             }
             (None, Some(_)) => {
-                // SECURITY: Strict validation - reject data without explicit hash commitment
-                // Data should always be explicitly committed in the previous transaction
-                // This prevents data injection attacks
                 return Err(SdkError::Validation(format!(
                     "Transaction chain broken at index {}: previous transaction has no recipient_data_hash but source state has data (security violation: uncommitted data)",
                     transaction_index
@@ -706,11 +801,12 @@ where
             }
         }
 
-        // STEP 4: Verify predicate authorization
+        // STEP 4: Verify predicate authorization (including signature verification)
         // The source state's predicate must authorize this transaction
         // Based on Java SDK Token.verifyTransaction() at line 318-320
+        // and DefaultPredicate.verify() at lines 160-188
         let predicate = source_predicate_ref.to_predicate()?;
-        let authenticator_public_key = transaction.inclusion_proof.authenticator.as_ref()
+        let authenticator = transaction.inclusion_proof.authenticator.as_ref()
             .ok_or_else(|| SdkError::Validation(
                 format!("Transaction at index {} missing authenticator", transaction_index)
             ))?;
@@ -723,26 +819,16 @@ where
         // Get nonce revelation from transaction data (for MaskedPredicate)
         let nonce = transaction.data.get_nonce_revelation();
 
-        // Convert types for predicate verification
-        if authenticator_public_key.public_key.len() != 33 {
-            return Err(SdkError::Validation(format!(
-                "Transaction at index {}: invalid public key length: expected 33, got {}",
-                transaction_index,
-                authenticator_public_key.public_key.len()
-            )));
-        }
-        let mut public_key_array = [0u8; 33];
-        public_key_array.copy_from_slice(&authenticator_public_key.public_key);
-        let public_key = crate::types::primitives::PublicKey::new(public_key_array)?;
-
+        // Convert transaction hash from hex string to DataHash
         let transaction_hash_bytes = hex::decode(transaction_hash)
             .map_err(|e| SdkError::Serialization(format!("Invalid transaction hash hex: {}", e)))?;
         let transaction_hash_data = DataHash::from_imprint(&transaction_hash_bytes)?;
 
-        // Call the full predicate.verify() method with nonce support
-        if !predicate.verify(&public_key, &transaction_hash_data, nonce)? {
+        // Call the full predicate.verify() method with signature verification and nonce support
+        // matching Java SDK DefaultPredicate.verify() at lines 176-178
+        if !predicate.verify(authenticator, &transaction_hash_data, nonce)? {
             return Err(SdkError::Validation(format!(
-                "Transaction at index {}: predicate verification failed - predicate does not authorize this transaction",
+                "Transaction at index {}: predicate verification failed - signature invalid or predicate does not authorize this transaction",
                 transaction_index
             )));
         }
@@ -949,7 +1035,6 @@ where
                 ));
             }
             (None, Some(_)) => {
-                // SECURITY: Strict validation - reject data without explicit hash commitment
                 // For genesis transactions, the state should not have uncommitted data
                 // For transfer transactions, data must be explicitly committed
                 return Err(SdkError::Validation(
