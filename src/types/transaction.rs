@@ -138,6 +138,7 @@ impl Authenticator {
 /// Custom deserializer for path that preserves large integers as strings
 mod path_serde {
     use serde::{Deserialize, Deserializer, Serializer};
+    use alloc::string::{String, ToString};
 
     pub fn serialize<S>(value: &String, serializer: S) -> Result<S::Ok, S::Error>
     where
